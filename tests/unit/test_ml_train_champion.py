@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from ml.train import select_champion, train_lightgbm, train_xgboost
+from ml.train import select_champion, select_deployed_model, train_lightgbm, train_xgboost
 
 
 def _tiny_fixture():
@@ -47,3 +47,27 @@ def test_select_champion_ties_prefer_xgboost():
     )
     assert name == "xgboost"
     assert model == "XGB_MODEL"
+
+
+def test_select_deployed_model_picks_best_by_val_pr_auc_including_baseline():
+    candidates = {
+        "baseline": ("BASELINE_MODEL", {"pr_auc": 0.60}),
+        "random_forest": ("RF_MODEL", {"pr_auc": 0.50}),
+        "xgboost": ("XGB_MODEL", {"pr_auc": 0.45}),
+        "lightgbm": ("LGBM_MODEL", {"pr_auc": 0.55}),
+    }
+    name, model = select_deployed_model(candidates)
+    assert name == "baseline"
+    assert model == "BASELINE_MODEL"
+
+
+def test_select_deployed_model_picks_tree_when_it_wins():
+    candidates = {
+        "baseline": ("BASELINE_MODEL", {"pr_auc": 0.40}),
+        "random_forest": ("RF_MODEL", {"pr_auc": 0.50}),
+        "xgboost": ("XGB_MODEL", {"pr_auc": 0.45}),
+        "lightgbm": ("LGBM_MODEL", {"pr_auc": 0.62}),
+    }
+    name, model = select_deployed_model(candidates)
+    assert name == "lightgbm"
+    assert model == "LGBM_MODEL"

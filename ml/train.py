@@ -168,6 +168,30 @@ def select_champion(
     return "lightgbm", lgbm_model
 
 
+def select_deployed_model(candidates: dict) -> tuple:
+    """Pick the overall best-performing trained candidate by validation PR-AUC.
+
+    Unlike `select_champion` (which only compares the two boosted-tree
+    candidates), this compares every trained candidate -- including the
+    logistic-regression baseline -- so a simpler model that empirically
+    wins is not excluded from being the model actually calibrated,
+    explained, and deployed.
+
+    Parameters
+    ----------
+    candidates : dict[str, tuple[object, dict]]
+        Mapping of candidate name -> (fitted model, val_metrics dict with
+        a "pr_auc" key).
+
+    Returns
+    -------
+    tuple[str, object]
+        The winning candidate's name and fitted model.
+    """
+    name, (model, _) = max(candidates.items(), key=lambda kv: kv[1][1]["pr_auc"])
+    return name, model
+
+
 def train_isolation_forest(X_train, contamination: float = 0.02) -> IsolationForest:
     """Train an Isolation Forest anomaly detector (unsupervised, no labels).
 

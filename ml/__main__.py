@@ -14,6 +14,7 @@ from ml.explain import explain_prediction, global_shap_importance
 from ml.train import (
     isolation_forest_anomaly_scores,
     select_champion,
+    select_deployed_model,
     train_baseline,
     train_isolation_forest,
     train_lightgbm,
@@ -28,12 +29,14 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     """Run the full modeling pipeline end to end.
 
     Loads features and labels, time-splits them, trains the baseline,
-    Random Forest, XGBoost, and LightGBM models, selects the champion by
-    validation PR-AUC, calibrates it, evaluates it on the test set,
-    trains an Isolation Forest anomaly detector, computes global and
-    local SHAP explanations, logs everything to MLflow, and writes
-    ``results.json`` plus calibration-curve and SHAP-importance plot
-    artifacts to ``ARTIFACTS_DIR``.
+    Random Forest, XGBoost, and LightGBM models, selects the overall
+    best-performing candidate by validation PR-AUC (including the
+    baseline -- not just the boosted-tree champion), calibrates it,
+    evaluates it on the test set, trains an Isolation Forest anomaly
+    detector, computes global and local SHAP explanations, logs
+    everything to MLflow, and writes ``results.json`` plus
+    calibration-curve and SHAP-importance plot artifacts to
+    ``ARTIFACTS_DIR``.
 
     Parameters
     ----------
@@ -46,9 +49,10 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     Returns
     -------
     dict
-        Results summary: champion name, validation/test metrics for every
-        model, Isolation Forest anomaly summary, global SHAP importance,
-        a local SHAP example, calibration curve data, and row counts.
+        Results summary: deployed model name, boosted-tree champion name,
+        validation/test metrics for every model, Isolation Forest anomaly
+        summary, global SHAP importance, a local SHAP example,
+        calibration curve data, and row counts.
     """
     features, labels = load_features_and_labels(data_dir)
     (train_X_raw, train_y), (val_X_raw, val_y), (test_X_raw, test_y) = time_based_split(
@@ -88,13 +92,26 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
         lgbm_val_metrics = evaluate_predictions(val_y, lgbm_model.predict_proba(val_X)[:, 1])
         mlflow.log_metric("val_pr_auc", lgbm_val_metrics["pr_auc"])
 
-    champion_name, champion_model = select_champion(
+    # champion_model itself is unused from here on: Task 9 only needs
+    # champion_name (kept as an informational field) since the model
+    # that actually gets calibrated/evaluated/explained is deployed_model
+    # below (the overall best of all four candidates, not just the
+    # boosted-tree comparison).
+    champion_name, _champion_model = select_champion(
         xgb_model, xgb_val_metrics, lgbm_model, lgbm_val_metrics
     )
 
-    calibrated_champion = calibrate(champion_model, val_X, val_y, method="isotonic")
+    candidates = {
+        "baseline": (baseline, baseline_val_metrics),
+        "random_forest": (rf, rf_val_metrics),
+        "xgboost": (xgb_model, xgb_val_metrics),
+        "lightgbm": (lgbm_model, lgbm_val_metrics),
+    }
+    deployed_name, deployed_model = select_deployed_model(candidates)
 
-    test_scores = calibrated_champion.predict_proba(test_X)[:, 1]
+    calibrated_deployed = calibrate(deployed_model, val_X, val_y, method="isotonic")
+
+    test_scores = calibrated_deployed.predict_proba(test_X)[:, 1]
     test_metrics = evaluate_predictions(test_y, test_scores)
     baseline_test_metrics = evaluate_predictions(test_y, baseline.predict_proba(test_X)[:, 1])
 
@@ -103,8 +120,13 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
 
     sample_size = min(2000, len(test_X))
     shap_sample = test_X.sample(sample_size, random_state=42)
-    shap_importance = global_shap_importance(champion_model, shap_sample)
-    shap_local_example = explain_prediction(champion_model, test_X.iloc[[0]])
+    shap_background = train_X.sample(min(100, len(train_X)), random_state=42)
+    shap_importance = global_shap_importance(
+        deployed_model, shap_sample, background=shap_background
+    )
+    shap_local_example = explain_prediction(
+        deployed_model, test_X.iloc[[0]], background=shap_background
+    )
 
     prob_true, prob_pred = calibration_curve_data(test_y, test_scores)
 
@@ -112,7 +134,7 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
 
     # Calibration curve plot (spec: "saved as a plot artifact")
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.plot(prob_pred, prob_true, marker="o", label="champion (calibrated)")
+    ax.plot(prob_pred, prob_true, marker="o", label="deployed model (calibrated)")
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="perfectly calibrated")
     ax.set_xlabel("predicted probability")
     ax.set_ylabel("observed fraud rate")
@@ -133,6 +155,7 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     plt.close(fig)
 
     results = {
+        "deployed_model_name": deployed_name,
         "champion_name": champion_name,
         "baseline_val_metrics": baseline_val_metrics,
         "random_forest_val_metrics": rf_val_metrics,
@@ -150,8 +173,9 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
         "row_counts": {"train": len(train_X), "val": len(val_X), "test": len(test_X)},
     }
 
-    with mlflow.start_run(run_name="champion_final"):
-        mlflow.log_param("champion_model", champion_name)
+    with mlflow.start_run(run_name="deployed_model_final"):
+        mlflow.log_param("deployed_model", deployed_name)
+        mlflow.log_param("boosted_tree_champion", champion_name)
         mlflow.log_metric("test_pr_auc", test_metrics["pr_auc"])
         mlflow.log_metric("test_roc_auc", test_metrics["roc_auc"])
         mlflow.log_artifact(f"{ARTIFACTS_DIR}/calibration_curve.png")
@@ -174,9 +198,10 @@ def main() -> None:
 
     if args.command == "train":
         results = _run_training(data_dir=args.data_dir)
-        print(f"Champion: {results['champion_name']}")
-        print(f"Baseline test PR-AUC: {results['baseline_test_metrics']['pr_auc']:.4f}")
-        print(f"Champion test PR-AUC:  {results['test_metrics']['pr_auc']:.4f}")
+        print(f"Boosted-tree champion (XGBoost vs LightGBM): {results['champion_name']}")
+        print(f"Deployed model (best of all candidates):     {results['deployed_model_name']}")
+        print(f"Baseline test PR-AUC:       {results['baseline_test_metrics']['pr_auc']:.4f}")
+        print(f"Deployed model test PR-AUC: {results['test_metrics']['pr_auc']:.4f}")
 
 
 if __name__ == "__main__":
