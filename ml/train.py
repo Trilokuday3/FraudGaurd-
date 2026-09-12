@@ -3,6 +3,8 @@ Isolation Forest. Every classifier here uses class-weighting for the ~1.5%
 imbalance, never resampling -- see the spec's "Why time-based split" and
 "Class imbalance handling" sections for the reasoning."""
 
+import lightgbm as lgb
+import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
@@ -52,3 +54,114 @@ def train_random_forest(X_train, y_train, n_estimators: int = 200) -> RandomFore
     )
     model.fit(X_train, y_train)
     return model
+
+
+def _scale_pos_weight(y_train) -> float:
+    """Compute the negative/positive class count ratio from the training fold.
+
+    This is the XGBoost/LightGBM analog of ``class_weight="balanced"`` --
+    neither library exposes that exact parameter, so the ratio is passed
+    explicitly via ``scale_pos_weight``. Must always be computed from the
+    training fold only, never validation or test, to avoid leakage.
+
+    Parameters
+    ----------
+    y_train : pd.Series or array-like
+        Training labels.
+
+    Returns
+    -------
+    float
+        Ratio of negative to positive samples in ``y_train``.
+    """
+    positive = (y_train == 1).sum()
+    negative = (y_train == 0).sum()
+    return negative / max(positive, 1)
+
+
+def train_xgboost(X_train, y_train) -> xgb.XGBClassifier:
+    """Train an XGBoost classifier with scale_pos_weight for class imbalance.
+
+    Parameters
+    ----------
+    X_train : pd.DataFrame
+        Training feature matrix.
+    y_train : pd.Series or array-like
+        Training labels.
+
+    Returns
+    -------
+    xgb.XGBClassifier
+        Fitted XGBoost model.
+    """
+    model = xgb.XGBClassifier(
+        scale_pos_weight=_scale_pos_weight(y_train),
+        n_estimators=200,
+        max_depth=5,
+        eval_metric="aucpr",
+        random_state=42,
+    )
+    model.fit(X_train, y_train)
+    return model
+
+
+def train_lightgbm(X_train, y_train) -> lgb.LGBMClassifier:
+    """Train a LightGBM classifier with scale_pos_weight for class imbalance.
+
+    Parameters
+    ----------
+    X_train : pd.DataFrame
+        Training feature matrix.
+    y_train : pd.Series or array-like
+        Training labels.
+
+    Returns
+    -------
+    lgb.LGBMClassifier
+        Fitted LightGBM model.
+    """
+    model = lgb.LGBMClassifier(
+        scale_pos_weight=_scale_pos_weight(y_train),
+        n_estimators=200,
+        max_depth=5,
+        random_state=42,
+        verbose=-1,
+    )
+    model.fit(X_train, y_train)
+    return model
+
+
+def select_champion(
+    xgb_model: object,
+    xgb_val_metrics: dict,
+    lgbm_model: object,
+    lgbm_val_metrics: dict,
+) -> tuple[str, object]:
+    """Pick the champion model by validation PR-AUC.
+
+    Pure comparison: no training, no I/O, no randomness. Ties go to
+    ``"xgboost"`` by design.
+
+    Parameters
+    ----------
+    xgb_model : object
+        Fitted XGBoost model.
+    xgb_val_metrics : dict
+        Validation metrics for ``xgb_model``, as returned by
+        ``ml.evaluate.evaluate_predictions`` (must contain ``"pr_auc"``).
+    lgbm_model : object
+        Fitted LightGBM model.
+    lgbm_val_metrics : dict
+        Validation metrics for ``lgbm_model``, as returned by
+        ``ml.evaluate.evaluate_predictions`` (must contain ``"pr_auc"``).
+
+    Returns
+    -------
+    tuple[str, object]
+        ``("xgboost", xgb_model)`` if ``xgb_val_metrics["pr_auc"]`` is
+        greater than or equal to ``lgbm_val_metrics["pr_auc"]``, otherwise
+        ``("lightgbm", lgbm_model)``.
+    """
+    if xgb_val_metrics["pr_auc"] >= lgbm_val_metrics["pr_auc"]:
+        return "xgboost", xgb_model
+    return "lightgbm", lgbm_model
