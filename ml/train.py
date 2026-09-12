@@ -4,8 +4,9 @@ imbalance, never resampling -- see the spec's "Why time-based split" and
 "Class imbalance handling" sections for the reasoning."""
 
 import lightgbm as lgb
+import numpy as np
 import xgboost as xgb
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
 
@@ -165,3 +166,50 @@ def select_champion(
     if xgb_val_metrics["pr_auc"] >= lgbm_val_metrics["pr_auc"]:
         return "xgboost", xgb_model
     return "lightgbm", lgbm_model
+
+
+def train_isolation_forest(X_train, contamination: float = 0.02) -> IsolationForest:
+    """Train an Isolation Forest anomaly detector (unsupervised, no labels).
+
+    Isolation Forest is a complementary unsupervised signal, never trained with
+    fraud labels and never used as a supervised classifier. It is trained on
+    features alone to detect statistical outliers/anomalies.
+
+    Parameters
+    ----------
+    X_train : pd.DataFrame or array-like
+        Training feature matrix. Must contain no missing values.
+    contamination : float, default=0.02
+        Expected proportion of anomalies in the dataset (prior for the model).
+
+    Returns
+    -------
+    IsolationForest
+        Fitted Isolation Forest model.
+    """
+    model = IsolationForest(contamination=contamination, random_state=42, n_jobs=-1)
+    model.fit(X_train)
+    return model
+
+
+def isolation_forest_anomaly_scores(model: IsolationForest, X) -> np.ndarray:
+    """Compute anomaly scores from a fitted Isolation Forest.
+
+    Higher score = more anomalous. Note: sklearn's ``IsolationForest.score_samples``
+    returns higher values for *normal* points and lower (more negative) for
+    anomalies, so this function negates it to produce the convention:
+    higher = more suspicious.
+
+    Parameters
+    ----------
+    model : IsolationForest
+        Fitted Isolation Forest model.
+    X : pd.DataFrame or array-like
+        Feature matrix to score.
+
+    Returns
+    -------
+    np.ndarray
+        Anomaly scores where higher values indicate more anomalous points.
+    """
+    return -model.score_samples(X)
