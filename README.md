@@ -17,6 +17,10 @@ Full design: `docs/superpowers/specs/2026-09-12-fraudguard-platform-roadmap.md`.
 `docs/superpowers/specs/2026-09-12-feature-engineering-design.md` and
 `docs/sub2-acceptance.md`.
 
+**Sub-project 3 (Modeling) — done.** See
+`docs/superpowers/specs/2026-09-12-modeling-design.md`,
+`docs/ml-acceptance.md`, and `ml/model_card.md`.
+
 ## Quickstart
 
 ```
@@ -27,6 +31,7 @@ pytest tests/unit -v              # generator correctness + leakage guards
 pytest tests/dq -v                # schema + referential-integrity gate on ./data
 make features                     # writes ./data/features.parquet
 pytest tests/features -v          # leakage + schema gate on the feature table
+make train                        # trains baseline through champion + Isolation Forest
 ```
 
 ## Layout
