@@ -15,7 +15,7 @@ features:
 	python -m features build
 
 test:
-	pytest tests/unit -v
+	pytest tests/unit tests/features -v
 
 lint:
 	ruff check .
