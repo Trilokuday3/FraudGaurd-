@@ -38,23 +38,12 @@ def _fixture():
             "first_seen_at": [t0 - pd.Timedelta(days=10), t0 - pd.Timedelta(days=5)],
         }
     )
-    # NOTE: fraud_label includes one confirmed fraud (TXN1) rather than all-zero
-    # as in the plan's literal fixture. An all-zero fraud_label makes the
-    # ground_truth slice inside build_merchant_features empty, and on this
-    # environment's pandas (3.0.5, arrow-backed default string dtype) an empty
-    # datetime64 Series passed to Series.map() on a str-dtype key column raises
-    # `TypeError: Cannot cast DatetimeArray to dtype float64` (reproduced in
-    # isolation; pandas>=2.0 with the legacy object string dtype does not hit
-    # this). That is a pre-existing environment-sensitive edge case in
-    # features/merchant.py (Tasks 2-7, out of scope here), not a defect in the
-    # orchestration under test, so it is worked around here rather than fixed.
-    # See task-8-report.md for the full repro and rationale.
     ground_truth = pd.DataFrame(
         {
             "transaction_id": ["TXN1", "TXN2", "TXN3"],
             "fraud_probability_true": [0.1, 0.1, 0.1],
-            "fraud_label": [1, 0, 0],
-            "confirmed_fraud_at": [t0 + pd.Timedelta(minutes=30), pd.NaT, pd.NaT],
+            "fraud_label": [0, 0, 0],
+            "confirmed_fraud_at": [pd.NaT, pd.NaT, pd.NaT],
         }
     )
     return transactions, customers, devices, ground_truth

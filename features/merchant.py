@@ -28,11 +28,8 @@ def build_merchant_features(
     # (confirmed_fraud_at == timestamp); the generator never produces a
     # negative delay, so no other row can be affected by this correction.
     fraud_confirmed_by_txn = fraud.set_index("transaction_id")["confirmed_fraud_at"]
-    self_leak = (
-        (df["transaction_id"].map(fraud_confirmed_by_txn) <= df["timestamp"])
-        .fillna(False)
-        .to_numpy()
-    )
+    own_confirmation = fraud_confirmed_by_txn.reindex(df["transaction_id"]).to_numpy()
+    self_leak = own_confirmation <= df["timestamp"].to_numpy()
 
     rates = np.empty(len(df))
 
@@ -52,10 +49,19 @@ def build_merchant_features(
         merchant_rate = numer / np.maximum(denom, 1)
 
         global_denom = np.searchsorted(all_txn_times, sorted_times, side="left")
-        global_numer = np.searchsorted(all_fraud_times, sorted_times, side="right") - sorted_self_leak
+        global_numer = (
+            np.searchsorted(all_fraud_times, sorted_times, side="right") - sorted_self_leak
+        )
         global_rate = global_numer / np.maximum(global_denom, 1)
 
         rate = np.where(denom >= min_history, merchant_rate, global_rate)
+        # Defensive guard: an exact-timestamp tie between a transaction and a
+        # fraud confirmation could in principle push a rate fractionally
+        # outside [0, 1] due to the self-leak subtraction above. Unreachable
+        # on real data today (max observed rate is 0.636) but clip anyway so
+        # a future edge case fails as a clean value, not an obscure
+        # downstream pandera range-check error.
+        rate = np.clip(rate, 0.0, 1.0)
         rates[idx[order]] = rate
 
     result = df.copy()
