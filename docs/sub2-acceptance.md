@@ -25,6 +25,24 @@ respects `confirmed_fraud_at` rather than transaction `timestamp`.
 
 See `docs/EDA_INSIGHTS.md` for the 6 business insights from `notebooks/01-eda.ipynb`.
 
+## Known deviations from spec
+
+- The spec (`docs/superpowers/specs/2026-09-12-feature-engineering-design.md`)
+  named `tests/features/test_correctness.py` as the home for per-feature
+  correctness tests. That file was never created; the equivalent tests were
+  written as `tests/unit/test_features_*.py`, one per feature family, which
+  is where TDD naturally put them alongside each feature module. Coverage is
+  equivalent — every correctness case the spec called for exists — just
+  organized per-feature-file rather than in one combined file.
+- The spec's determinism criterion (`test_features_determinism`: same input
+  Parquet ⇒ identical output content hash) was instead satisfied via an
+  in-process fixture comparison, `test_build_feature_table_is_deterministic`
+  in `tests/unit/test_features_build.py`, which builds the feature table
+  twice from the same fixture and asserts frame equality, rather than a
+  content-hash test run against the full real `data/features.parquet`. This
+  proves the same property (determinism of `build_feature_table`) without
+  depending on a generated data file being present.
+
 ## What's next
 
 Sub-project 3 (Modeling) trains a baseline → champion classifier on
