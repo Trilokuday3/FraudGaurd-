@@ -13,6 +13,10 @@ Full design: `docs/superpowers/specs/2026-09-12-fraudguard-platform-roadmap.md`.
 `docs/superpowers/specs/2026-09-12-data-foundation-design.md` and
 `docs/sub1-acceptance.md`.
 
+**Sub-project 2 (EDA + Feature Engineering) — done.** See
+`docs/superpowers/specs/2026-09-12-feature-engineering-design.md` and
+`docs/sub2-acceptance.md`.
+
 ## Quickstart
 
 ```
@@ -21,6 +25,8 @@ python -m venv .venv
 python -m generator seed          # writes ./data/*.parquet
 pytest tests/unit -v              # generator correctness + leakage guards
 pytest tests/dq -v                # schema + referential-integrity gate on ./data
+make features                     # writes ./data/features.parquet
+pytest tests/features -v          # leakage + schema gate on the feature table
 ```
 
 ## Layout
