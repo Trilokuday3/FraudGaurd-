@@ -1,0 +1,17 @@
+# local-only step-by-step learning notes (not part of the deliverable)
+learning-notes/
+
+.worktrees/
+
+data/
+*.pyc
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+generation_meta.json
+.env
+mlruns/
+node_modules/
+.next/

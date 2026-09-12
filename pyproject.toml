@@ -1,0 +1,15 @@
+# Repo-root config: dev tooling only. The installable package is libs/fraudguard_core.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "integration: needs docker compose services running (deselect with -m 'not integration')",
+]
