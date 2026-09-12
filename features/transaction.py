@@ -5,9 +5,7 @@ import pandas as pd
 NIGHT_HOURS = frozenset({1, 2, 3, 4})
 
 
-def build_transaction_features(
-    transactions: pd.DataFrame, customers: pd.DataFrame
-) -> pd.DataFrame:
+def build_transaction_features(transactions: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     home_country = customers.set_index("customer_id")["home_country"]
 
     out = transactions[["transaction_id", "amount", "payment_method", "timestamp"]].copy()

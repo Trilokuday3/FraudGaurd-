@@ -16,6 +16,4 @@ def build_geo_features(transactions: pd.DataFrame) -> pd.DataFrame:
     ).astype(int)
     df["ip_country_mismatch"] = (df["country"] != df["ip_country"]).astype(int)
 
-    return df.set_index("transaction_id")[
-        ["is_new_country_for_customer", "ip_country_mismatch"]
-    ]
+    return df.set_index("transaction_id")[["is_new_country_for_customer", "ip_country_mismatch"]]

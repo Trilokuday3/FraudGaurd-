@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 from fraudguard_core.schemas import features_schema
+from pandera.errors import SchemaErrors
 
 
 def _valid_row() -> pd.DataFrame:
@@ -35,5 +36,5 @@ def test_features_schema_accepts_valid_row():
 def test_features_schema_rejects_forbidden_column():
     df = _valid_row()
     df["fraud_label"] = [1]
-    with pytest.raises(Exception):
+    with pytest.raises(SchemaErrors):
         features_schema.validate(df)

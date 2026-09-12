@@ -78,5 +78,7 @@ def test_merchant_risk_excludes_self_confirmation_with_zero_delay():
     result = build_merchant_features(transactions, ground_truth, min_history=0)
 
     assert result.loc["X", "merchant_fraud_rate_hist"] == 0.0  # X has no prior transactions
-    assert result.loc["Y", "merchant_fraud_rate_hist"] == 1.0  # X is now a valid prior confirmed fraud
+    assert (
+        result.loc["Y", "merchant_fraud_rate_hist"] == 1.0
+    )  # X is now a valid prior confirmed fraud
     assert result.loc["Z", "merchant_fraud_rate_hist"] == 0.5

@@ -37,12 +37,12 @@ def test_velocity_multiple_customers_interleaved():
             "transaction_id": ["A1", "B1", "A2", "B2", "A3", "B3"],
             "customer_id": ["CA", "CB", "CA", "CB", "CA", "CB"],
             "timestamp": [
-                base_time + pd.Timedelta(minutes=0),    # A1 00:00
-                base_time + pd.Timedelta(minutes=15),   # B1 00:15
-                base_time + pd.Timedelta(minutes=30),   # A2 00:30
-                base_time + pd.Timedelta(minutes=45),   # B2 00:45
-                base_time + pd.Timedelta(minutes=90),   # A3 01:30
-                base_time + pd.Timedelta(hours=2),      # B3 02:00
+                base_time + pd.Timedelta(minutes=0),  # A1 00:00
+                base_time + pd.Timedelta(minutes=15),  # B1 00:15
+                base_time + pd.Timedelta(minutes=30),  # A2 00:30
+                base_time + pd.Timedelta(minutes=45),  # B2 00:45
+                base_time + pd.Timedelta(minutes=90),  # A3 01:30
+                base_time + pd.Timedelta(hours=2),  # B3 02:00
             ],
         }
     )
