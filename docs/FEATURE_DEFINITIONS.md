@@ -5,6 +5,13 @@ it's computed. Schema enforced by `fraudguard_core.schemas.features_schema`;
 computation lives in `features/`. Every feature is causal: computed using
 only information available strictly before the transaction being scored.
 
+All features assume strictly distinct timestamps per customer/merchant; the
+sort-based causal ordering used throughout `features/` is not
+stability-guaranteed under exact timestamp ties. This is unreachable on this
+generator's data (verified zero duplicate timestamps across all 519,876
+transactions) but worth flagging for any future higher-frequency data
+source.
+
 ## Transaction (`features/transaction.py`)
 | feature | definition |
 |---|---|
@@ -32,10 +39,15 @@ only information available strictly before the transaction being scored.
 | `device_age_days` | days since `device.first_seen_at`, clipped at 0 |
 | `customer_device_count_so_far` | count of distinct devices this customer used strictly before this transaction |
 
+Note: `is_new_device` and `device_age_days == 0` are perfectly collinear in
+this dataset, because the generator sets `first_seen_at` to the device's
+first transaction timestamp. Worth knowing for anyone doing feature
+importance analysis later.
+
 ## Merchant (`features/merchant.py`)
 | feature | definition |
 |---|---|
-| `merchant_fraud_rate_hist` | this merchant's historical fraud rate, using only past transactions whose fraud was **confirmed** (`confirmed_fraud_at <= t`) by the current transaction's time — not merely committed by then. Merchants with fewer than 20 qualifying prior transactions fall back to the global historical fraud rate as of the same instant. |
+| `merchant_fraud_rate_hist` | this merchant's historical fraud rate, using only past transactions whose fraud was **confirmed** (`confirmed_fraud_at <= t`) by the current transaction's time — not merely committed by then. Merchants with fewer than 20 qualifying prior transactions fall back to the global historical fraud rate as of the same instant. A transaction that is itself confirmed fraud with zero confirmation delay (`confirmed_fraud_at == timestamp`) never counts its own confirmation toward its own rate — only genuinely prior transactions count. |
 
 ## Geo (`features/geo.py`)
 | feature | definition |
