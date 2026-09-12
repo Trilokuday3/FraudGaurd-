@@ -74,10 +74,35 @@ ground_truth_schema = DataFrameSchema(
     strict=True,
 )
 
+features_schema = DataFrameSchema(
+    {
+        "transaction_id": Column(str, unique=True, checks=Check.str_startswith("TXN")),
+        "customer_id": Column(str),
+        "merchant_id": Column(str),
+        "timestamp": Column("datetime64[ns]"),
+        "amount": Column(float, checks=Check.gt(0)),
+        "payment_method": Column(str, checks=Check.isin(PAYMENT_METHOD)),
+        "hour_of_day": Column(int, checks=Check.in_range(0, 23)),
+        "is_night": Column(int, checks=Check.isin({0, 1})),
+        "is_cross_border": Column(int, checks=Check.isin({0, 1})),
+        "amount_vs_customer_p95": Column(float, checks=Check.gt(0)),
+        "txn_count_1h": Column(int, checks=Check.ge(0)),
+        "txn_count_24h": Column(int, checks=Check.ge(0)),
+        "is_new_device": Column(int, checks=Check.isin({0, 1})),
+        "device_age_days": Column(float, checks=Check.ge(0)),
+        "customer_device_count_so_far": Column(int, checks=Check.ge(0)),
+        "merchant_fraud_rate_hist": Column(float, checks=Check.in_range(0, 1)),
+        "is_new_country_for_customer": Column(int, checks=Check.isin({0, 1})),
+        "ip_country_mismatch": Column(int, checks=Check.isin({0, 1})),
+    },
+    strict=True,
+)
+
 ALL_SCHEMAS = {
     "customers": customers_schema,
     "merchants": merchants_schema,
     "devices": devices_schema,
     "transactions": transactions_schema,
     "ground_truth": ground_truth_schema,
+    "features": features_schema,
 }
