@@ -77,3 +77,11 @@ def test_no_forbidden_leakage_columns():
     assert "base_fraud_rate" not in merchants.columns
     for col in ("fraud_label", "fraud_probability_true", "confirmed_fraud_at"):
         assert col not in transactions.columns
+
+
+def test_confirmed_fraud_at_never_before_timestamp():
+    transactions = _load("transactions")
+    ground_truth = _load("ground_truth")
+    merged = ground_truth.merge(transactions[["transaction_id", "timestamp"]], on="transaction_id")
+    confirmed = merged[merged["confirmed_fraud_at"].notna()]
+    assert (confirmed["confirmed_fraud_at"] >= confirmed["timestamp"]).all()
