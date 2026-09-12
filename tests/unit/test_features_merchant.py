@@ -56,3 +56,27 @@ def test_merchant_risk_falls_back_to_global_prior_below_min_history():
     # By the time of D, the global population has 1 confirmed fraud (A) out of 3
     # prior transactions (A, B, C) -> global rate = 1/3.
     assert abs(result.loc["D", "merchant_fraud_rate_hist"] - (1 / 3)) < 1e-9
+
+
+def test_merchant_risk_excludes_self_confirmation_with_zero_delay():
+    t0 = pd.Timestamp("2026-01-01T00:00:00")
+    transactions = pd.DataFrame(
+        {
+            "transaction_id": ["X", "Y", "Z"],
+            "merchant_id": ["M1", "M1", "M1"],
+            "timestamp": [t0, t0 + pd.Timedelta(days=5), t0 + pd.Timedelta(days=10)],
+        }
+    )
+    ground_truth = pd.DataFrame(
+        {
+            "transaction_id": ["X", "Y", "Z"],
+            "fraud_label": [1, 0, 0],
+            "confirmed_fraud_at": [t0, pd.NaT, pd.NaT],  # zero delay: confirmed at its own instant
+        }
+    )
+
+    result = build_merchant_features(transactions, ground_truth, min_history=0)
+
+    assert result.loc["X", "merchant_fraud_rate_hist"] == 0.0  # X has no prior transactions
+    assert result.loc["Y", "merchant_fraud_rate_hist"] == 1.0  # X is now a valid prior confirmed fraud
+    assert result.loc["Z", "merchant_fraud_rate_hist"] == 0.5

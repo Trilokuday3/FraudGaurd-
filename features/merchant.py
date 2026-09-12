@@ -22,6 +22,18 @@ def build_merchant_features(
     all_fraud_times = np.sort(fraud["confirmed_fraud_at"].to_numpy())
 
     df = transactions[["transaction_id", "merchant_id", "timestamp"]].reset_index(drop=True)
+
+    # A transaction's own fraud confirmation must never count toward its own
+    # rate. This only matters when the confirmation delay is zero
+    # (confirmed_fraud_at == timestamp); the generator never produces a
+    # negative delay, so no other row can be affected by this correction.
+    fraud_confirmed_by_txn = fraud.set_index("transaction_id")["confirmed_fraud_at"]
+    self_leak = (
+        (df["transaction_id"].map(fraud_confirmed_by_txn) <= df["timestamp"])
+        .fillna(False)
+        .to_numpy()
+    )
+
     rates = np.empty(len(df))
 
     for merchant_id, group in df.groupby("merchant_id"):
@@ -29,16 +41,18 @@ def build_merchant_features(
         order = np.argsort(group["timestamp"].to_numpy())
         sorted_times = group["timestamp"].to_numpy()[order]
 
+        sorted_self_leak = self_leak[idx][order]
+
         merchant_fraud_times = np.sort(
             fraud.loc[fraud["merchant_id"] == merchant_id, "confirmed_fraud_at"].to_numpy()
         )
 
         denom = np.searchsorted(sorted_times, sorted_times, side="left")
-        numer = np.searchsorted(merchant_fraud_times, sorted_times, side="right")
+        numer = np.searchsorted(merchant_fraud_times, sorted_times, side="right") - sorted_self_leak
         merchant_rate = numer / np.maximum(denom, 1)
 
         global_denom = np.searchsorted(all_txn_times, sorted_times, side="left")
-        global_numer = np.searchsorted(all_fraud_times, sorted_times, side="right")
+        global_numer = np.searchsorted(all_fraud_times, sorted_times, side="right") - sorted_self_leak
         global_rate = global_numer / np.maximum(global_denom, 1)
 
         rate = np.where(denom >= min_history, merchant_rate, global_rate)
