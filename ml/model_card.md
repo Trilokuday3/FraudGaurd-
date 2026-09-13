@@ -34,9 +34,9 @@ separately, never a model input feature).
 
 ## Metrics (test set, held out, evaluated once)
 
-| model | validation PR-AUC | test PR-AUC | test ROC-AUC |
+| model | validation PR-AUC | test PR-AUC (calibrated) | test ROC-AUC (calibrated) |
 |---|---|---|---|
-| Baseline (Logistic Regression) | 0.5426 | 0.7236 | 0.9466 |
+| Baseline (Logistic Regression) | 0.5426 | 0.7101 | 0.9463 |
 | Random Forest | 0.4921 | — | — |
 | XGBoost | 0.4489 | — | — |
 | LightGBM | 0.5220 | — | — |
@@ -45,23 +45,12 @@ separately, never a model input feature).
 (Random Forest/XGBoost/LightGBM only have validation metrics recorded in
 `results.json` unless one of them is the deployed model — test-set metrics
 are only computed once, for the deployed model, per the "touch test exactly
-once" split discipline.)
-
-**Note on the deployed-vs-baseline test numbers above:** the deployed model
-*is* the baseline Logistic Regression, but the two rows are not the exact
-same computation — `test_metrics` reflects the deployed model's
-isotonic-**calibrated** probabilities, while the "Baseline" row's test
-PR-AUC/ROC-AUC come from the same fitted model's **raw, uncalibrated**
-`predict_proba` output (`ml/__main__.py`'s `baseline_test_metrics`, computed
-directly from `baseline.predict_proba(test_X)` for reference/comparison,
-never calibrated separately). Isotonic calibration is a monotonic step
-function fit on the validation set; applying it to the test set collapses
-some previously-distinct raw scores into shared output bins (ties), which
-can very slightly change rank-based metrics like PR-AUC relative to the
-uncalibrated scores. That is what produced the small (~0.0135, ~1.9%) gap
-between the two rows in this run — it is a calibration-measurement artifact
-on an otherwise identical model, not evidence of two different models or of
-the deployed model losing to a different, better baseline.
+once" split discipline. The "Baseline" row's test metrics are computed from
+the baseline calibrated the same way as the deployed model, for a fair,
+apples-to-apples comparison — not raw/uncalibrated scores. Since the
+deployed model in this run *is* the baseline, the two rows are
+mathematically identical, not merely close: `ml/__main__.py` reuses the
+same calibrated model object for both, rather than recomputing.)
 
 Precision/recall/F1 at illustrative thresholds (0.3 / 0.5 / 0.7) for the
 deployed model are in `ml/artifacts/results.json` — the actual operating
@@ -90,4 +79,3 @@ single-transaction explanation.
 - ~18-month window; no multi-year seasonality or concept drift has been observed or tested (that's sub-project 7's job).
 - Isolation Forest's anomaly score is displayed but not benchmarked against a labeled anomaly-detection ground truth (none exists for unsupervised methods here) — treat it as a qualitative signal, not a metric-backed one.
 - The tree-based candidates (Random Forest, XGBoost, LightGBM) all underperformed the logistic-regression baseline on this dataset using the hyperparameters this project's design specified (`n_estimators=200`, `max_depth=5`, `scale_pos_weight` from the training-fold class ratio). This project did not run a hyperparameter search to try to close that gap — the decision was to report the honest result and deploy the actual best performer rather than expand scope chasing a specific algorithm family. A future iteration could revisit this with a tuning pass (see roadmap sub-project 7).
-- Isotonic calibration, applied only to the deployed model, introduces a small (~1.9%) measured PR-AUC difference relative to that same model's raw/uncalibrated scores (see the note under "Metrics" above) — a byproduct of fitting the calibration map on validation data and applying it to test, not a sign of a different or worse model.

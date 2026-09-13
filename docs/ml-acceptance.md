@@ -7,22 +7,19 @@
 
 - Deployed model: baseline (overall best of baseline/RF/XGBoost/LightGBM by validation PR-AUC — `ml.train.select_deployed_model`)
 - Boosted-tree champion (XGBoost vs LightGBM only, for reference): lightgbm
-- Baseline test PR-AUC: 0.7236 (raw/uncalibrated `baseline.predict_proba` on test)
-- Deployed model test PR-AUC: 0.7101 (isotonic-**calibrated** deployed-model scores on test)
-- **Deployed model beats baseline on PR-AUC: NO, by -0.0135 (-1.9%)** — the
-  deployed model *is* the baseline model in this run, so this is not two
-  different models competing; it is the same fitted Logistic Regression
-  evaluated two ways: `test_metrics` after isotonic calibration (fit on
-  validation, applied to test) vs. `baseline_test_metrics` on raw
-  uncalibrated scores. Isotonic calibration is a monotonic step function;
-  applying a validation-fit step function to unseen test data collapses some
-  previously-distinct scores into shared bins (ties), which can slightly
-  change a rank-based metric like PR-AUC. That is the source of this small
-  gap, not a case of a tree model or a different baseline outperforming the
-  deployed model — see `ml/model_card.md`'s "Metrics" section note for detail.
-  ROC-AUC shows the same small direction (0.9463 deployed vs 0.9466 raw
-  baseline). This was investigated, not assumed: the same underlying model
-  object supplies both numbers in this run.
+- Baseline test PR-AUC (calibrated the same way as the deployed model): 0.7101
+- Deployed model test PR-AUC: 0.7101
+- **Deployed model beats baseline on PR-AUC: TIE (identical), as expected —
+  the deployed model *is* the baseline model in this run**, and both numbers
+  come from the exact same calibrated model object
+  (`ml/__main__.py` reuses `calibrated_deployed` for the baseline comparison
+  whenever `deployed_model_name == "baseline"`, rather than recomputing a
+  separately-calibrated baseline). An earlier version of this run compared
+  the calibrated deployed model against the baseline's *raw, uncalibrated*
+  scores, which produced a spurious ~1.9% PR-AUC gap purely from isotonic
+  calibration's tie-collapsing effect on a rank-based metric — that
+  inconsistency was found and fixed (`ml/__main__.py`, commit `a6ec725`)
+  before this acceptance run.
 - Row counts: 325,830 / 86,135 / 107,911 (train/val/test)
 
 **Note on this run's result:** the deployed model was the logistic-regression
@@ -45,7 +42,7 @@ entries).
 ## Test suite
 
 Run: `pytest tests/unit -v -k ml_`
-Result: `21 passed, 19 deselected, 133 warnings in 7.25s`
+Result: `21 passed, 19 deselected, 134 warnings in 9.67s`
 
 ## Artifacts
 
