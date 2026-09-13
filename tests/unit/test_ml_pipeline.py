@@ -76,3 +76,12 @@ def test_run_training_end_to_end_on_tiny_fixture(tiny_data_dir, tmp_path):
     # tiny fixture. Expected; no cleanup needed.
     assert os.path.exists("./ml/artifacts/calibration_curve.png")
     assert os.path.exists("./ml/artifacts/shap_global_importance.png")
+
+    # baseline_test_metrics must reflect a CALIBRATED baseline, not raw
+    # scores -- otherwise a calibrated deployed model gets compared against
+    # an uncalibrated one, which can make an identical model look worse
+    # than itself purely from calibration's effect on a rank-based metric.
+    # When the baseline IS the deployed model, the two must be identical.
+    if results["deployed_model_name"] == "baseline":
+        assert results["test_metrics"]["pr_auc"] == results["baseline_test_metrics"]["pr_auc"]
+        assert results["test_metrics"]["roc_auc"] == results["baseline_test_metrics"]["roc_auc"]

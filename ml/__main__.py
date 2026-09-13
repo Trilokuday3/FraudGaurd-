@@ -113,7 +113,23 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
 
     test_scores = calibrated_deployed.predict_proba(test_X)[:, 1]
     test_metrics = evaluate_predictions(test_y, test_scores)
-    baseline_test_metrics = evaluate_predictions(test_y, baseline.predict_proba(test_X)[:, 1])
+
+    # Compare against a CALIBRATED baseline, not the baseline's raw scores:
+    # comparing a calibrated deployed model to an uncalibrated baseline can
+    # make an identical model look worse than itself purely from
+    # calibration's tie-collapsing effect on a rank-based metric like
+    # PR-AUC (isotonic regression fit on validation can map several
+    # distinct test scores to the same step). When the baseline IS the
+    # deployed model, reuse its calibration instead of recomputing it, so
+    # the two numbers are mathematically identical, not just close.
+    calibrated_baseline = (
+        calibrated_deployed
+        if deployed_name == "baseline"
+        else calibrate(baseline, val_X, val_y, method="isotonic")
+    )
+    baseline_test_metrics = evaluate_predictions(
+        test_y, calibrated_baseline.predict_proba(test_X)[:, 1]
+    )
 
     isolation_forest = train_isolation_forest(train_X)
     anomaly_scores = isolation_forest_anomaly_scores(isolation_forest, test_X)
