@@ -6,12 +6,15 @@ import os
 
 import matplotlib.pyplot as plt
 import mlflow
+import mlflow.sklearn
+import pandas as pd
 
 from ml.calibration import calibrate
 from ml.data import load_features_and_labels, prepare_model_matrix, time_based_split
 from ml.evaluate import calibration_curve_data, evaluate_predictions
 from ml.explain import explain_prediction, global_shap_importance
 from ml.train import (
+    _scale_pos_weight,
     isolation_forest_anomaly_scores,
     select_champion,
     select_deployed_model,
@@ -25,7 +28,11 @@ from ml.train import (
 ARTIFACTS_DIR = "./ml/artifacts"
 
 
-def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns") -> dict:
+def _run_training(
+    data_dir: str = "./data",
+    mlflow_tracking_uri: str = "./mlruns",
+    artifacts_dir: str = ARTIFACTS_DIR,
+) -> dict:
     """Run the full modeling pipeline end to end.
 
     Loads features and labels, time-splits them, trains the baseline,
@@ -36,7 +43,7 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     detector, computes global and local SHAP explanations, logs
     everything to MLflow, and writes ``results.json`` plus
     calibration-curve and SHAP-importance plot artifacts to
-    ``ARTIFACTS_DIR``.
+    ``artifacts_dir``.
 
     Parameters
     ----------
@@ -45,6 +52,10 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
         ``ground_truth.parquet``.
     mlflow_tracking_uri : str, default="./mlruns"
         MLflow tracking URI to log runs to.
+    artifacts_dir : str, default=``ARTIFACTS_DIR`` ("./ml/artifacts")
+        Directory to write ``results.json`` and plot artifacts to. Tests
+        pass a ``tmp_path`` here so running the suite never overwrites the
+        real training run's artifacts.
 
     Returns
     -------
@@ -73,21 +84,42 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     mlflow.set_experiment("fraudguard-modeling")
 
     with mlflow.start_run(run_name="baseline"):
+        baseline_params = {"class_weight": "balanced", "max_iter": 1000}
+        mlflow.log_params(baseline_params)
         baseline = train_baseline(train_X, train_y)
         baseline_val_metrics = evaluate_predictions(val_y, baseline.predict_proba(val_X)[:, 1])
         mlflow.log_metric("val_pr_auc", baseline_val_metrics["pr_auc"])
 
     with mlflow.start_run(run_name="random_forest"):
+        rf_params = {"n_estimators": 200, "class_weight": "balanced", "random_state": 42}
+        mlflow.log_params(rf_params)
         rf = train_random_forest(train_X, train_y)
         rf_val_metrics = evaluate_predictions(val_y, rf.predict_proba(val_X)[:, 1])
         mlflow.log_metric("val_pr_auc", rf_val_metrics["pr_auc"])
 
     with mlflow.start_run(run_name="xgboost"):
+        xgb_scale_pos_weight = _scale_pos_weight(train_y)
+        xgb_params = {
+            "n_estimators": 200,
+            "max_depth": 5,
+            "eval_metric": "aucpr",
+            "random_state": 42,
+            "scale_pos_weight": xgb_scale_pos_weight,
+        }
+        mlflow.log_params(xgb_params)
         xgb_model = train_xgboost(train_X, train_y)
         xgb_val_metrics = evaluate_predictions(val_y, xgb_model.predict_proba(val_X)[:, 1])
         mlflow.log_metric("val_pr_auc", xgb_val_metrics["pr_auc"])
 
     with mlflow.start_run(run_name="lightgbm"):
+        lgbm_scale_pos_weight = _scale_pos_weight(train_y)
+        lgbm_params = {
+            "n_estimators": 200,
+            "max_depth": 5,
+            "random_state": 42,
+            "scale_pos_weight": lgbm_scale_pos_weight,
+        }
+        mlflow.log_params(lgbm_params)
         lgbm_model = train_lightgbm(train_X, train_y)
         lgbm_val_metrics = evaluate_predictions(val_y, lgbm_model.predict_proba(val_X)[:, 1])
         mlflow.log_metric("val_pr_auc", lgbm_val_metrics["pr_auc"])
@@ -134,6 +166,15 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     isolation_forest = train_isolation_forest(train_X)
     anomaly_scores = isolation_forest_anomaly_scores(isolation_forest, test_X)
 
+    os.makedirs(artifacts_dir, exist_ok=True)
+    anomaly_scores_df = pd.DataFrame(
+        {
+            "transaction_id": test_X_raw["transaction_id"].values,
+            "anomaly_score": anomaly_scores,
+        }
+    )
+    anomaly_scores_df.to_csv(f"{artifacts_dir}/isolation_forest_scores.csv", index=False)
+
     sample_size = min(2000, len(test_X))
     shap_sample = test_X.sample(sample_size, random_state=42)
     shap_background = train_X.sample(min(100, len(train_X)), random_state=42)
@@ -146,8 +187,6 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
 
     prob_true, prob_pred = calibration_curve_data(test_y, test_scores)
 
-    os.makedirs(ARTIFACTS_DIR, exist_ok=True)
-
     # Calibration curve plot (spec: "saved as a plot artifact")
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.plot(prob_pred, prob_true, marker="o", label="deployed model (calibrated)")
@@ -155,7 +194,7 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     ax.set_xlabel("predicted probability")
     ax.set_ylabel("observed fraud rate")
     ax.legend()
-    fig.savefig(f"{ARTIFACTS_DIR}/calibration_curve.png")
+    fig.savefig(f"{artifacts_dir}/calibration_curve.png")
     plt.close(fig)
 
     # Global SHAP importance bar chart (spec: "saved as a bar-chart artifact")
@@ -167,7 +206,7 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
     )
     ax.set_xlabel("mean |SHAP value|")
     fig.tight_layout()
-    fig.savefig(f"{ARTIFACTS_DIR}/shap_global_importance.png")
+    fig.savefig(f"{artifacts_dir}/shap_global_importance.png")
     plt.close(fig)
 
     results = {
@@ -194,10 +233,30 @@ def _run_training(data_dir: str = "./data", mlflow_tracking_uri: str = "./mlruns
         mlflow.log_param("boosted_tree_champion", champion_name)
         mlflow.log_metric("test_pr_auc", test_metrics["pr_auc"])
         mlflow.log_metric("test_roc_auc", test_metrics["roc_auc"])
-        mlflow.log_artifact(f"{ARTIFACTS_DIR}/calibration_curve.png")
-        mlflow.log_artifact(f"{ARTIFACTS_DIR}/shap_global_importance.png")
+        mlflow.log_artifact(f"{artifacts_dir}/calibration_curve.png")
+        mlflow.log_artifact(f"{artifacts_dir}/shap_global_importance.png")
+        mlflow.log_artifact(f"{artifacts_dir}/isolation_forest_scores.csv")
+        # mlflow 3.16.0's default sklearn serialization format ("skops") refuses
+        # to save CalibratedClassifierCV(FrozenEstimator(...)) -- it raises
+        # UntrustedTypesFoundException on `sklearn.calibration._CalibratedClassifier`,
+        # a private wrapper type skops doesn't recognize as safe. cloudpickle has
+        # no such allowlist (it can serialize any picklable Python object) and is
+        # still an officially supported mlflow.sklearn serialization format, so use
+        # it here instead. Standard caveat applies: loading a cloudpickle model
+        # runs arbitrary code, same as any pickle -- acceptable for this project's
+        # local-only, self-hosted MLflow store.
+        mlflow.sklearn.log_model(
+            calibrated_deployed,
+            name="calibrated_deployed_model",
+            serialization_format="cloudpickle",
+        )
+        mlflow.sklearn.log_model(
+            isolation_forest,
+            name="isolation_forest_model",
+            serialization_format="cloudpickle",
+        )
 
-    with open(f"{ARTIFACTS_DIR}/results.json", "w") as f:
+    with open(f"{artifacts_dir}/results.json", "w") as f:
         json.dump(results, f, indent=2, default=float)
 
     return results
@@ -207,7 +266,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="ml")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    train_cmd = sub.add_parser("train", help="Train baseline through champion + Isolation Forest")
+    train_cmd = sub.add_parser(
+        "train",
+        help="Train baseline through champion candidates, select the overall best "
+        "performer, plus Isolation Forest",
+    )
     train_cmd.add_argument("--data-dir", type=str, default="./data")
 
     args = parser.parse_args()

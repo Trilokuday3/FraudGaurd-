@@ -47,10 +47,15 @@ Result: `21 passed, 19 deselected, 134 warnings in 9.67s`
 ## Artifacts
 
 - `ml/artifacts/results.json` — full metrics, SHAP importances, per-threshold precision/recall/F1
-- `ml/artifacts/calibration_curve.png` — predicted probability vs. observed fraud rate
-- `ml/artifacts/shap_global_importance.png` — top-15 features by mean |SHAP value|
+- `ml/artifacts/isolation_forest_scores.csv` — per-transaction Isolation Forest anomaly scores on the test set
+- `docs/img/calibration_curve.png` — predicted probability vs. observed fraud rate
+- `docs/img/shap_global_importance.png` — top-15 features by mean |SHAP value|
 - `./mlruns/` — every training run (baseline, RF, XGBoost, LightGBM, deployed_model_final), gitignored
 - `ml/model_card.md` — human-readable summary
+
+![Calibration curve](img/calibration_curve.png)
+
+![Global SHAP importance](img/shap_global_importance.png)
 
 ## What's next
 

@@ -30,17 +30,24 @@ separately, never a model input feature).
 - Source: `data/features.parquet` (sub-project 2's gold feature table), joined to `ground_truth.fraud_label`
 - Volume: 325,830 train / 86,135 val / 107,911 test rows
 - Split: time-based on transaction `timestamp`, ~70/15/15 by date range
+- Date ranges: train 2025-03-01 – 2026-03-20, val 2026-03-20 – 2026-06-10, test 2026-06-10 – 2026-08-31
 - Class balance: ~1.5% fraud prevalence, handled via class-weighting (no resampling)
 
 ## Metrics (test set, held out, evaluated once)
 
-| model | validation PR-AUC | test PR-AUC (calibrated) | test ROC-AUC (calibrated) |
+| model | validation PR-AUC (uncalibrated) | test PR-AUC (calibrated) | test ROC-AUC (calibrated) |
 |---|---|---|---|
 | Baseline (Logistic Regression) | 0.5426 | 0.7101 | 0.9463 |
 | Random Forest | 0.4921 | — | — |
 | XGBoost | 0.4489 | — | — |
 | LightGBM | 0.5220 | — | — |
 | **Deployed (baseline)** | — | **0.7101** | **0.9463** |
+
+Note: the validation column reflects each model's raw, uncalibrated scores
+(used only for candidate selection), while the test column reflects the
+deployed model's isotonic-calibrated scores on a distinct, later time
+period — the two columns are not a directly comparable before/after on the
+same data.
 
 (Random Forest/XGBoost/LightGBM only have validation metrics recorded in
 `results.json` unless one of them is the deployed model — test-set metrics
@@ -60,7 +67,9 @@ threshold is a cost-sensitive decision made in sub-project 4, not fixed here.
 
 Isotonic regression, fit on the validation set, applied to the deployed
 model's raw scores before any of the metrics above are computed. See
-`ml/artifacts/calibration_curve.png`.
+`docs/img/calibration_curve.png`.
+
+![Calibration curve](../docs/img/calibration_curve.png)
 
 ## Explainability
 
@@ -69,9 +78,11 @@ sample of the test set, via `shap.LinearExplainer` since the deployed model
 is linear — see `ml/explain.py`): `device_age_days` (0.5417),
 `merchant_fraud_rate_hist` (0.3424), `amount_vs_customer_p95` (0.3325),
 `txn_count_1h` (0.2652), `payment_method_card` (0.2110). See
-`ml/artifacts/shap_global_importance.png` for the full chart, and
+`docs/img/shap_global_importance.png` for the full chart, and
 `results["shap_local_example"]` in `ml/artifacts/results.json` for a worked
 single-transaction explanation.
+
+![Global SHAP importance](../docs/img/shap_global_importance.png)
 
 ## Known limitations
 

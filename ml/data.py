@@ -7,6 +7,7 @@ ID_COLUMNS = ["transaction_id", "customer_id", "merchant_id", "timestamp"]
 
 
 def load_features_and_labels(data_dir: str = "./data") -> tuple[pd.DataFrame, pd.Series]:
+    """Load the gold feature table and join it to the fraud label."""
     features = pd.read_parquet(f"{data_dir}/features.parquet")
     ground_truth = pd.read_parquet(f"{data_dir}/ground_truth.parquet")
     labels = features[["transaction_id"]].merge(
@@ -16,8 +17,8 @@ def load_features_and_labels(data_dir: str = "./data") -> tuple[pd.DataFrame, pd
 
 
 def prepare_model_matrix(features: pd.DataFrame) -> pd.DataFrame:
+    """Drop ID columns and one-hot encode ``payment_method`` into a model-ready matrix."""
     matrix = features.drop(columns=[c for c in ID_COLUMNS if c in features.columns])
-    matrix = matrix.copy()
     matrix["payment_method"] = pd.Categorical(
         matrix["payment_method"], categories=sorted(PAYMENT_METHOD)
     )
@@ -29,7 +30,10 @@ def time_based_split(
     labels: pd.Series,
     train_frac: float = 0.70,
     val_frac: float = 0.15,
-):
+) -> tuple[
+    tuple[pd.DataFrame, pd.Series], tuple[pd.DataFrame, pd.Series], tuple[pd.DataFrame, pd.Series]
+]:
+    """Split features/labels chronologically into train/val/test by date-range cutoffs."""
     start = features["timestamp"].min()
     end = features["timestamp"].max()
     span = end - start

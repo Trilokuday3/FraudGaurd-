@@ -6,6 +6,25 @@
 **Depends on:** sub-project 2 (EDA + Feature Engineering) — trains on `data/features.parquet`
 **Blocks:** sub-project 4 (Decision Engine + API) — serves this sub-project's calibrated champion model and SHAP explainer
 
+## Amendment (2026-09-13)
+
+Running the real pipeline against the full dataset showed the plain
+Logistic Regression baseline beating every tree-based candidate (Random
+Forest, XGBoost, LightGBM) on both validation and test PR-AUC, consistently
+across all three tree algorithms — investigated and confirmed not a bug.
+Per an explicit decision, this project deploys whichever trained candidate
+is genuinely best by validation PR-AUC (`ml.train.select_deployed_model`),
+including the baseline — not restricted to a boosted-tree-only comparison.
+Everywhere below that says "champion" describes the *original* design
+(still present in the code as `ml.train.select_champion`, an informational
+comparison between XGBoost and LightGBM only); the model actually
+calibrated, evaluated on test, explained, and intended for sub-project 4 to
+serve is whatever `select_deployed_model` returns — see
+`ml/model_card.md` and `docs/ml-acceptance.md` for this project's actual
+result. SHAP explainability uses `TreeExplainer` for tree-based candidates
+and `shap.LinearExplainer` for a linear one (`ml/explain.py`), not only
+`TreeExplainer` as originally written below.
+
 ## Purpose
 
 Turn the leakage-safe gold feature table into a calibrated, explainable fraud classifier that actually earns its precision, evaluated the way a real deployment would be evaluated (time-aware, PR-AUC first), plus a complementary anomaly signal and the documentation artifacts a decision engine (and a recruiter) can trust.

@@ -31,7 +31,7 @@ pytest tests/unit -v              # generator correctness + leakage guards
 pytest tests/dq -v                # schema + referential-integrity gate on ./data
 make features                     # writes ./data/features.parquet
 pytest tests/features -v          # leakage + schema gate on the feature table
-make train                        # trains baseline through champion + Isolation Forest
+make train                        # trains baseline through champion candidates, selects the overall best performer, plus Isolation Forest
 ```
 
 ## Layout
@@ -39,7 +39,10 @@ make train                        # trains baseline through champion + Isolation
 ```
 libs/fraudguard_core/   shared schemas, config, value sets
 generator/               synthetic data generator (customers, merchants, devices, transactions)
-tests/unit/              generator correctness tests
+features/                leakage-safe feature engineering -> data/features.parquet
+ml/                      modeling: data prep, training, calibration, SHAP, Isolation Forest, CLI
+tests/unit/              generator + feature + modeling unit tests
+tests/features/          leakage + schema gate on the feature table
 tests/dq/                pandera data-quality gate against ./data
 docs/                    specs, data dictionary, generation-model writeup
 ```

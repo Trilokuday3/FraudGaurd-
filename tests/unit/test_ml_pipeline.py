@@ -62,7 +62,12 @@ def tiny_data_dir(tmp_path):
 
 
 def test_run_training_end_to_end_on_tiny_fixture(tiny_data_dir, tmp_path):
-    results = _run_training(data_dir=tiny_data_dir, mlflow_tracking_uri=str(tmp_path / "mlruns"))
+    artifacts_dir = str(tmp_path / "artifacts")
+    results = _run_training(
+        data_dir=tiny_data_dir,
+        mlflow_tracking_uri=str(tmp_path / "mlruns"),
+        artifacts_dir=artifacts_dir,
+    )
 
     assert results["champion_name"] in {"xgboost", "lightgbm"}
     assert "pr_auc" in results["test_metrics"]
@@ -70,12 +75,8 @@ def test_run_training_end_to_end_on_tiny_fixture(tiny_data_dir, tmp_path):
     assert "shap_global_importance" in results
     assert "shap_local_example" in results
     assert "calibration_curve" in results
-    # ARTIFACTS_DIR in ml/__main__.py is hardcoded to ./ml/artifacts (relative to
-    # the process's working directory, not data_dir) -- this test writes real
-    # files into the repo's gitignored ml/artifacts/ even though it trains on a
-    # tiny fixture. Expected; no cleanup needed.
-    assert os.path.exists("./ml/artifacts/calibration_curve.png")
-    assert os.path.exists("./ml/artifacts/shap_global_importance.png")
+    assert os.path.exists(f"{artifacts_dir}/calibration_curve.png")
+    assert os.path.exists(f"{artifacts_dir}/shap_global_importance.png")
 
     # baseline_test_metrics must reflect a CALIBRATED baseline, not raw
     # scores -- otherwise a calibrated deployed model gets compared against

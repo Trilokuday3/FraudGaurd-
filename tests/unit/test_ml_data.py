@@ -10,7 +10,7 @@ def test_time_based_split_respects_chronological_order():
     )
     labels = pd.Series([0] * 100)
 
-    (train_X, train_y), (val_X, val_y), (test_X, test_y) = time_based_split(
+    (train_X, train_y), (val_X, _val_y), (test_X, _test_y) = time_based_split(
         features, labels, train_frac=0.70, val_frac=0.15
     )
 
