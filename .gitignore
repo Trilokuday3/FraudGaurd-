@@ -13,5 +13,6 @@ __pycache__/
 generation_meta.json
 .env
 mlruns/
+ml/artifacts/
 node_modules/
 .next/

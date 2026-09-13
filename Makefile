@@ -1,4 +1,4 @@
-.PHONY: venv seed dq test lint features
+.PHONY: venv seed dq test lint features train
 
 venv:
 	python -m venv .venv
@@ -13,6 +13,9 @@ dq:
 
 features:
 	python -m features build
+
+train:
+	python -m ml train
 
 test:
 	pytest tests/unit tests/features -v
