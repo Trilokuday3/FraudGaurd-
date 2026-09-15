@@ -113,10 +113,36 @@ def app_client(tmp_path, monkeypatch):
         mlflow.log_metric("deployed_val_pr_auc", 0.55)
         mlflow.log_metric("test_pr_auc", 0.60)
         mlflow.log_param("deployed_model", "baseline")
+        comparison_path = tmp_path / "model_comparison.json"
+        comparison_path.write_text(
+            json.dumps(
+                {
+                    "calibration_curve": {"prob_true": [0.1, 0.2], "prob_pred": [0.12, 0.22]},
+                    "shap_importances": {"amount": 0.3, "hour_of_day": 0.1},
+                }
+            )
+        )
+        mlflow.log_artifact(str(comparison_path))
+
+    for candidate_name, val_pr_auc in [
+        ("baseline", 0.50),
+        ("random_forest", 0.55),
+        ("xgboost", 0.60),
+        ("lightgbm", 0.58),
+    ]:
+        with mlflow.start_run(run_name=candidate_name):
+            mlflow.log_metric("val_pr_auc", val_pr_auc)
 
     thresholds_path = tmp_path / "thresholds.json"
     thresholds_path.write_text(
-        json.dumps({"t_review": 0.3, "t_block": 0.7, "model_run_id": run_id})
+        json.dumps(
+            {
+                "t_review": 0.3,
+                "t_block": 0.7,
+                "model_run_id": run_id,
+                "cost_curve": [{"t_review": 0.1, "cost": 500.0}, {"t_review": 0.3, "cost": 200.0}],
+            }
+        )
     )
 
     db_path = tmp_path / "decisions.db"
@@ -310,3 +336,24 @@ def test_decisions_stats_since_minutes_excludes_nothing_within_window(app_client
     response = app_client.get("/decisions/stats?since_minutes=60")
     assert response.status_code == 200
     assert response.json()["total"] >= 1
+
+
+def test_model_metadata_includes_cost_curve(app_client):
+    response = app_client.get("/model/metadata")
+    assert response.status_code == 200
+    body = response.json()
+    assert "cost_curve" in body
+    assert isinstance(body["cost_curve"], list)
+
+
+def test_model_comparison_returns_candidates_and_curves(app_client):
+    response = app_client.get("/model/comparison")
+    assert response.status_code == 200
+    body = response.json()
+    names = {c["name"] for c in body["candidates"]}
+    assert {"baseline", "random_forest", "xgboost", "lightgbm"}.issubset(names)
+    deployed = [c for c in body["candidates"] if c["is_deployed"]]
+    assert len(deployed) == 1
+    assert deployed[0]["name"] == "baseline"
+    assert len(body["calibration_curve"]) == 2
+    assert len(body["shap_importances"]) == 2

@@ -2,6 +2,7 @@
 metadata, health."""
 
 import json
+import tempfile
 import warnings
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +17,8 @@ from serving.config import settings
 from serving.ml_loader import load_deployed_model
 from serving.models import Decision, make_session_factory
 from serving.schemas import (
+    CalibrationPoint,
+    CostCurvePoint,
     DecisionRow,
     DecisionsListResponse,
     DecisionsStatsBucket,
@@ -23,11 +26,24 @@ from serving.schemas import (
     ExplainResponse,
     FeatureRow,
     InvestigationResponse,
+    ModelComparisonCandidate,
+    ModelComparisonResponse,
     ModelMetadataResponse,
     ScoreResponse,
+    ShapImportance,
 )
 
 app = FastAPI(title="FraudGuard Decision Engine API")
+
+_CANDIDATE_RUN_NAMES = ["baseline", "random_forest", "xgboost", "lightgbm"]
+
+
+def _load_json_artifact(client: MlflowClient, run_id: str, artifact_path: str) -> dict:
+    with tempfile.TemporaryDirectory() as tmp:
+        local_path = client.download_artifacts(run_id, artifact_path, tmp)
+        with open(local_path) as f:
+            return json.load(f)
+
 
 _loaded = load_deployed_model(settings.mlflow_run_id, settings.mlflow_tracking_uri)
 with open(settings.thresholds_path) as _f:
@@ -244,6 +260,57 @@ def model_metadata() -> ModelMetadataResponse:
         calibration_method="isotonic",
         t_review=_thresholds["t_review"],
         t_block=_thresholds["t_block"],
+        cost_curve=[CostCurvePoint(**pt) for pt in _thresholds.get("cost_curve", [])],
+    )
+
+
+@app.get("/model/comparison", response_model=ModelComparisonResponse)
+def model_comparison() -> ModelComparisonResponse:
+    client = MlflowClient()
+    deployed_run = client.get_run(_loaded.run_id)
+    deployed_name = deployed_run.data.params.get("deployed_model", "unknown")
+
+    # Search within the deployed run's own experiment rather than a
+    # hardcoded experiment name: in production this is always
+    # "fraudguard-modeling" (ml/__main__.py logs the deployed run and all
+    # candidate runs into that one experiment), and this also makes the
+    # lookup work correctly against whatever experiment name a test/other
+    # environment's fixture happens to use.
+    candidates = []
+    for name in _CANDIDATE_RUN_NAMES:
+        matches = client.search_runs(
+            experiment_ids=[deployed_run.info.experiment_id],
+            filter_string=f"tags.`mlflow.runName` = '{name}'",
+            order_by=["attributes.start_time DESC"],
+            max_results=1,
+        )
+        if matches:
+            run = matches[0]
+            candidates.append(
+                ModelComparisonCandidate(
+                    name=name,
+                    val_pr_auc=float(run.data.metrics.get("val_pr_auc", 0.0)),
+                    is_deployed=(name == deployed_name),
+                )
+            )
+
+    comparison_artifact = _load_json_artifact(client, _loaded.run_id, "model_comparison.json")
+    calibration_curve = [
+        CalibrationPoint(mean_predicted=p, fraction_positive=t)
+        for p, t in zip(
+            comparison_artifact["calibration_curve"]["prob_pred"],
+            comparison_artifact["calibration_curve"]["prob_true"],
+        )
+    ]
+    shap_importances = [
+        ShapImportance(feature=k, mean_abs_shap=v)
+        for k, v in comparison_artifact["shap_importances"].items()
+    ]
+
+    return ModelComparisonResponse(
+        candidates=candidates,
+        calibration_curve=calibration_curve,
+        shap_importances=shap_importances,
     )
 
 
