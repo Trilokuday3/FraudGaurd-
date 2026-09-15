@@ -1,4 +1,4 @@
-.PHONY: venv seed dq test lint features train
+.PHONY: venv seed dq test lint features train api
 
 venv:
 	python -m venv .venv
@@ -17,8 +17,11 @@ features:
 train:
 	python -m ml train
 
+api:
+	uvicorn serving.app:app --reload
+
 test:
-	pytest tests/unit tests/features -v
+	pytest tests/unit tests/features tests/dq tests/integration -v
 
 lint:
 	ruff check .

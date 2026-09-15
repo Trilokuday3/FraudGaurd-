@@ -251,6 +251,9 @@ def _run_training(
             serialization_format="cloudpickle",
         )
         mlflow.sklearn.log_model(
+            deployed_model, name="raw_deployed_model", serialization_format="cloudpickle"
+        )
+        mlflow.sklearn.log_model(
             isolation_forest,
             name="isolation_forest_model",
             serialization_format="cloudpickle",

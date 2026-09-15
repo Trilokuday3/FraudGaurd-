@@ -13,6 +13,7 @@ __pycache__/
 generation_meta.json
 .env
 mlruns/
+decisions.db
 ml/artifacts/
 node_modules/
 .next/
