@@ -17,3 +17,4 @@ decisions.db
 ml/artifacts/
 node_modules/
 .next/
+frontend/next-env.d.ts
