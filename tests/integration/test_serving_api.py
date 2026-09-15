@@ -215,3 +215,38 @@ def test_scoring_is_deterministic_for_the_same_input(app_client):
     second = app_client.post("/score", json={**row, "transaction_id": "TXN-DETERMINISTIC-2"}).json()
     assert first["model_score"] == second["model_score"]
     assert first["decision"] == second["decision"]
+
+
+def test_score_and_score_batch_agree_on_the_same_input(app_client):
+    row = _valid_feature_row(transaction_id="TXN-AGREE")
+    single = app_client.post("/score", json=row).json()
+
+    batch_row = _valid_feature_row(transaction_id="TXN-AGREE-BATCH")
+    batch = app_client.post("/score/batch", json=[batch_row]).json()[0]
+
+    assert single["model_score"] == batch["model_score"]
+    assert single["decision"] == batch["decision"]
+    assert single["decision_source"] == batch["decision_source"]
+
+
+def test_score_persists_exactly_one_decision_row(app_client):
+    from serving.app import SessionLocal
+    from serving.models import Decision
+
+    session = SessionLocal()
+    try:
+        before = session.query(Decision).count()
+    finally:
+        session.close()
+
+    app_client.post("/score", json=_valid_feature_row(transaction_id="TXN-EXACTLY-ONCE"))
+
+    session = SessionLocal()
+    try:
+        after = session.query(Decision).count()
+        matching = session.query(Decision).filter_by(transaction_id="TXN-EXACTLY-ONCE").count()
+    finally:
+        session.close()
+
+    assert after == before + 1
+    assert matching == 1

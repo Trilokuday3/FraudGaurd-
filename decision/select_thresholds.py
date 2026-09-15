@@ -64,6 +64,16 @@ def grid_search_thresholds(scores, labels, amounts, step: float = 0.01) -> dict:
                     "total_cost": cost,
                 }
 
+    cost_curve = [
+        {
+            "t_review": round(float(t_review), 4),
+            "cost": compute_total_cost(scores, labels, amounts, t_review, best["t_block"]),
+        }
+        for t_review in candidates
+        if t_review < best["t_block"]
+    ]
+    best["cost_curve"] = cost_curve
+
     return best
 
 

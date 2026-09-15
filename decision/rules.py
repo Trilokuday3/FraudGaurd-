@@ -4,8 +4,12 @@ already present in the gold feature table -- no new feature engineering."""
 
 DECISION_ORDER: dict[str, int] = {"approve": 0, "review": 1, "block": 2}
 
-ALLOWLIST_CUSTOMER_IDS: frozenset[str] = frozenset()
-ALLOWLIST_MERCHANT_IDS: frozenset[str] = frozenset()
+# Illustrative example entries so the allowlist override path is reachable
+# and demonstrable in the deployed service (this project has no real
+# customer/merchant list to draw from) — same spirit as the illustrative
+# cost matrix in decision/select_thresholds.py.
+ALLOWLIST_CUSTOMER_IDS: frozenset[str] = frozenset({"CUST000001"})
+ALLOWLIST_MERCHANT_IDS: frozenset[str] = frozenset({"MERC000001"})
 
 
 def evaluate_rules(

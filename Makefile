@@ -21,7 +21,7 @@ api:
 	uvicorn serving.app:app --reload
 
 test:
-	pytest tests/unit tests/features -v
+	pytest tests/unit tests/features tests/dq tests/integration -v
 
 lint:
 	ruff check .

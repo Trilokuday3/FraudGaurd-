@@ -2,6 +2,7 @@
 metadata, health."""
 
 import json
+import warnings
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -27,6 +28,15 @@ _loaded = load_deployed_model(settings.mlflow_run_id, settings.mlflow_tracking_u
 with open(settings.thresholds_path) as _f:
     _thresholds = json.load(_f)
 
+if _thresholds.get("model_run_id") != settings.mlflow_run_id:
+    warnings.warn(
+        f"thresholds.json was computed for run {_thresholds.get('model_run_id')!r} "
+        f"but the API is configured to load run {settings.mlflow_run_id!r} — "
+        "re-run decision.select_thresholds.select_thresholds_for_run for the "
+        "currently-configured run before trusting these thresholds.",
+        stacklevel=1,
+    )
+
 SessionLocal = make_session_factory(settings.decision_db_url)
 
 
@@ -35,7 +45,7 @@ def _feature_row_to_model_input(row: FeatureRow) -> pd.DataFrame:
     return prepare_model_matrix(raw)
 
 
-def _score_one(row: FeatureRow) -> ScoreResponse:
+def _compute_score(row: FeatureRow) -> tuple[ScoreResponse, Decision]:
     model_input = _feature_row_to_model_input(row)
     model_score = float(_loaded.model.predict_proba(model_input)[:, 1][0])
 
@@ -54,29 +64,34 @@ def _score_one(row: FeatureRow) -> ScoreResponse:
     )
     top5 = dict(sorted(contributions.items(), key=lambda kv: abs(kv[1]), reverse=True)[:5])
 
-    session = SessionLocal()
-    try:
-        record = Decision(
-            transaction_id=row.transaction_id,
-            model_score=model_score,
-            decision=final_decision,
-            triggered_rules=triggered_rules,
-            decision_source=decision_source,
-            model_run_id=_loaded.run_id,
-            shap_top_features=top5,
-        )
-        session.add(record)
-        session.commit()
-    finally:
-        session.close()
-
-    return ScoreResponse(
+    record = Decision(
+        transaction_id=row.transaction_id,
+        model_score=model_score,
+        decision=final_decision,
+        triggered_rules=triggered_rules,
+        decision_source=decision_source,
+        model_run_id=_loaded.run_id,
+        shap_top_features=top5,
+    )
+    response = ScoreResponse(
         transaction_id=row.transaction_id,
         model_score=model_score,
         decision=final_decision,
         triggered_rules=triggered_rules,
         decision_source=decision_source,
     )
+    return response, record
+
+
+def _score_one(row: FeatureRow) -> ScoreResponse:
+    response, record = _compute_score(row)
+    session = SessionLocal()
+    try:
+        session.add(record)
+        session.commit()
+    finally:
+        session.close()
+    return response
 
 
 @app.post("/score", response_model=ScoreResponse)
@@ -86,7 +101,18 @@ def score(row: FeatureRow) -> ScoreResponse:
 
 @app.post("/score/batch", response_model=list[ScoreResponse])
 def score_batch(rows: list[FeatureRow]) -> list[ScoreResponse]:
-    return [_score_one(row) for row in rows]
+    results = [_compute_score(row) for row in rows]
+    responses = [response for response, _ in results]
+    records = [record for _, record in results]
+
+    session = SessionLocal()
+    try:
+        session.add_all(records)
+        session.commit()
+    finally:
+        session.close()
+
+    return responses
 
 
 @app.post("/explain", response_model=ExplainResponse)

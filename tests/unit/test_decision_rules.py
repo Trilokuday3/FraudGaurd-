@@ -69,6 +69,13 @@ def test_allowlisted_customer_flagged_via_explicit_allowlist_param():
     assert decision == "block"
 
 
+def test_default_allowlist_flags_the_illustrative_example_customer():
+    row = _base_row(customer_id="CUST000001")
+    _decision, triggered, allowlisted = evaluate_rules(row)
+    assert allowlisted is True
+    assert "trusted_allowlist" in triggered
+
+
 def test_combine_decision_allowlist_overrides_everything():
     decision, source = combine_decision(
         model_score=0.99,

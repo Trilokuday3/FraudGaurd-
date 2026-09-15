@@ -50,3 +50,7 @@ def test_grid_search_finds_the_zero_cost_perfect_split():
     assert best["total_cost"] == 0.0
     assert best["t_review"] > 0.05
     assert best["t_block"] <= 0.95
+
+    assert "cost_curve" in best
+    assert len(best["cost_curve"]) > 0
+    assert all("t_review" in point and "cost" in point for point in best["cost_curve"])
