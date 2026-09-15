@@ -1161,25 +1161,48 @@ import pytest
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LogisticRegression
 
+from ml.data import prepare_model_matrix
 
-FEATURE_COLUMNS = [
-    "hour_of_day",
-    "is_night",
-    "is_cross_border",
-    "amount_vs_customer_p95",
-    "txn_count_1h",
-    "txn_count_24h",
-    "is_new_device",
-    "device_age_days",
-    "customer_device_count_so_far",
-    "merchant_fraud_rate_hist",
-    "is_new_country_for_customer",
-    "ip_country_mismatch",
-    "amount",
-    "payment_method_bank_transfer",
-    "payment_method_card",
-    "payment_method_wallet",
-]
+
+def _synthetic_raw_rows(n: int, rng: np.random.Generator) -> pd.DataFrame:
+    """Raw (pre-prepare_model_matrix) feature rows, same shape as
+    fraudguard_core.schemas.features_schema. The tiny model below is
+    trained on these run through the REAL prepare_model_matrix function
+    (not a hand-rolled column list), so its column set/order can never
+    drift out of sync with what serving/app.py's _feature_row_to_model_input
+    produces at request time -- confirmed via direct verification that
+    prepare_model_matrix's actual output is
+    ['amount', 'hour_of_day', 'is_night', 'is_cross_border',
+    'amount_vs_customer_p95', 'txn_count_1h', 'txn_count_24h',
+    'is_new_device', 'device_age_days', 'customer_device_count_so_far',
+    'merchant_fraud_rate_hist', 'is_new_country_for_customer',
+    'ip_country_mismatch', 'payment_method_bank_transfer',
+    'payment_method_card', 'payment_method_wallet'] -- but this fixture
+    doesn't hardcode that list at all, so it stays correct even if
+    prepare_model_matrix's column order ever changes."""
+    timestamps = pd.date_range("2026-01-01", periods=n, freq="h")
+    return pd.DataFrame(
+        {
+            "transaction_id": [f"TXN{i:04d}" for i in range(n)],
+            "customer_id": [f"CUST{i % 20:03d}" for i in range(n)],
+            "merchant_id": [f"MERC{i % 10:03d}" for i in range(n)],
+            "timestamp": timestamps,
+            "amount": rng.lognormal(mean=3, sigma=1, size=n),
+            "payment_method": rng.choice(["card", "wallet", "bank_transfer"], size=n),
+            "hour_of_day": timestamps.hour,
+            "is_night": (timestamps.hour < 5).astype(int),
+            "is_cross_border": rng.integers(0, 2, size=n),
+            "amount_vs_customer_p95": rng.uniform(0.5, 2.0, size=n),
+            "txn_count_1h": rng.integers(0, 3, size=n),
+            "txn_count_24h": rng.integers(0, 5, size=n),
+            "is_new_device": rng.integers(0, 2, size=n),
+            "device_age_days": rng.uniform(0, 100, size=n),
+            "customer_device_count_so_far": rng.integers(0, 3, size=n),
+            "merchant_fraud_rate_hist": rng.uniform(0, 0.1, size=n),
+            "is_new_country_for_customer": rng.integers(0, 2, size=n),
+            "ip_country_mismatch": rng.integers(0, 2, size=n),
+        }
+    )
 
 
 def _valid_feature_row(**overrides):
@@ -1215,15 +1238,9 @@ def app_client(tmp_path, monkeypatch):
     mlflow.set_experiment("test-serving-api")
 
     rng = np.random.default_rng(0)
-    X = pd.DataFrame(rng.normal(size=(200, len(FEATURE_COLUMNS))), columns=FEATURE_COLUMNS)
-    # keep bool-shaped columns 0/1 so prepare_model_matrix-equivalent behavior isn't confused
-    for col in [
-        "is_night", "is_cross_border", "is_new_device",
-        "is_new_country_for_customer", "ip_country_mismatch",
-        "payment_method_bank_transfer", "payment_method_card", "payment_method_wallet",
-    ]:
-        X[col] = (X[col] > 0).astype(int)
-    y = (X["amount_vs_customer_p95"] > 0).astype(int)
+    raw_rows = _synthetic_raw_rows(200, rng)
+    X = prepare_model_matrix(raw_rows)
+    y = (X["amount_vs_customer_p95"] > 1.0).astype(int)
 
     model = LogisticRegression(max_iter=1000).fit(X, y)
     iso = IsolationForest(random_state=42).fit(X)
@@ -1342,8 +1359,6 @@ def test_scoring_is_deterministic_for_the_same_input(app_client):
     assert first["model_score"] == second["model_score"]
     assert first["decision"] == second["decision"]
 ```
-
-Note: the fixture's synthetic `X` uses column names matching a plausible `prepare_model_matrix` output shape (16 columns: 12 raw feature columns minus IDs/timestamp, plus 3 one-hot `payment_method_*` plus `amount` — verify this list against `ml.data.prepare_model_matrix`'s actual output columns for the real `PAYMENT_METHOD` enum values before finalizing; adjust `FEATURE_COLUMNS` to match exactly, since `_feature_row_to_model_input` in `serving/app.py` (Step 3 below) calls the real `prepare_model_matrix` function and the loaded model must have been fit on a matching column set or `predict_proba` will raise a column-mismatch error).
 
 - [ ] **Step 3: Run test to verify it fails**
 
@@ -1518,7 +1533,7 @@ api:
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -m pytest tests/integration/test_serving_api.py -v`
-Expected: PASS (10 tests). If `predict_proba` raises a column-mismatch error, fix `FEATURE_COLUMNS` in the test fixture to exactly match what `ml.data.prepare_model_matrix` actually produces (check by running it once against a small real-shaped DataFrame and printing `.columns`), not what this plan guessed.
+Expected: PASS (10 tests).
 
 - [ ] **Step 7: Commit**
 
