@@ -1,4 +1,4 @@
-.PHONY: venv seed dq test lint features train api replay
+.PHONY: venv seed dq test lint features train api replay frontend
 
 venv:
 	python -m venv .venv
@@ -29,3 +29,6 @@ test:
 lint:
 	ruff check .
 	black --check .
+
+frontend:
+	cd frontend && npm run dev
