@@ -1813,3 +1813,90 @@ make api                          # serves the decision engine (score/explain/in
 git add decision/thresholds.json docs/decision-engine-acceptance.md README.md
 git commit -m "docs: record sub-project 4 acceptance run"
 ```
+
+---
+
+### Task 11: Fix test-isolation failures — `test_settings_defaults` and `test_model_metadata`
+
+**Context:** Running the full suite together (`pytest tests/unit tests/integration -v`) surfaces two real, precisely-diagnosed test-isolation failures that don't occur when each test file runs alone:
+
+1. `tests/unit/test_serving_config.py::test_settings_defaults` fails with `mlflow_tracking_uri` reading a stale tmp-path value instead of the code default `"./mlruns"`. Root cause, confirmed by direct reproduction: `mlflow.set_tracking_uri(uri)` mutates the REAL `os.environ["MLFLOW_TRACKING_URI"]` as an internal side effect (verified directly: `os.environ.get("MLFLOW_TRACKING_URI")` is `None` before the call and the passed URI after). `tests/unit/test_ml_pipeline.py`'s `_run_training(...)` call (sub-project 3, already merged) calls `mlflow.set_tracking_uri()` with a pytest `tmp_path`-based URI, which leaves that value in the REAL OS environment for the rest of the pytest process. `Settings(_env_file=None)` still reads real OS env vars — `_env_file=None` only disables the `.env` FILE source, not the environment-variable source — so any later `Settings()` construction anywhere in the same session picks up the leaked value.
+2. `tests/integration/test_serving_api.py::test_model_metadata` fails with `t_review`/`t_block` reading the REAL repo's `decision/thresholds.json` (committed by Task 10) instead of the test's own temp-file thresholds. Root cause: `serving/config.py`'s `settings = Settings()` is a module-level singleton evaluated once on first import. The `app_client` fixture calls `importlib.reload(serving.app)` after `monkeypatch.setenv(...)`, but `serving.app` does `from serving.config import settings` — reloading `serving.app` alone just re-fetches the SAME (stale, un-reloaded) `settings` object from `serving.config`, which was never itself reloaded.
+
+Neither issue is a production bug (a real deployment has one process, one fixed environment — the singleton pattern is correct there); both are test-isolation gaps that only manifest when the full suite runs together, which is exactly how CI and every other verification pass in this project runs it.
+
+**Files:**
+- Modify: `tests/unit/test_serving_config.py` (isolate `test_settings_defaults` from OS env leakage)
+- Modify: `tests/integration/test_serving_api.py` (reload `serving.config`, not just `serving.app`)
+
+**Interfaces:** No production code changes — test-only fixes.
+
+- [ ] **Step 1: Fix `tests/unit/test_serving_config.py`**
+
+```python
+# tests/unit/test_serving_config.py -- full replacement
+from serving.config import Settings
+
+_ENV_KEYS = ["MLFLOW_TRACKING_URI", "MLFLOW_RUN_ID", "DECISION_DB_URL", "THRESHOLDS_PATH"]
+
+
+def test_settings_defaults(monkeypatch):
+    # Guard against real OS env leakage from other tests in the same pytest
+    # process -- mlflow.set_tracking_uri() mutates os.environ as a side
+    # effect, and Settings(_env_file=None) still reads real env vars (only
+    # the .env FILE source is disabled, not the environment-variable one).
+    for key in _ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    s = Settings(_env_file=None)
+    assert s.mlflow_tracking_uri == "./mlruns"
+    assert s.decision_db_url == "sqlite:///./decisions.db"
+    assert s.thresholds_path == "./decision/thresholds.json"
+
+
+def test_settings_env_override(monkeypatch):
+    monkeypatch.setenv("MLFLOW_RUN_ID", "abc123")
+    s = Settings(_env_file=None)
+    assert s.mlflow_run_id == "abc123"
+```
+
+- [ ] **Step 2: Fix `tests/integration/test_serving_api.py`'s fixture to reload `serving.config` too**
+
+Find the `app_client` fixture's import/reload block (the comment starting `# import after env vars are set`). It currently does something like:
+
+```python
+    import importlib
+
+    import serving.app as app_module
+
+    importlib.reload(app_module)
+```
+
+Change it to reload `serving.config` FIRST, then `serving.app` (order matters: `serving.app` does `from serving.config import settings`, binding the name at import time, so `serving.config` must be re-evaluated before `serving.app` re-imports from it):
+
+```python
+    import importlib
+
+    import serving.config
+
+    importlib.reload(serving.config)
+
+    import serving.app as app_module
+
+    importlib.reload(app_module)
+```
+
+- [ ] **Step 3: Verify the fix**
+
+Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -m pytest tests/unit tests/integration -v`
+Expected: PASS, all green — no failures, including when the full suite runs together (not just each file in isolation). This is the actual bar to clear: re-run the FULL command at least twice to confirm it's not merely order-dependent luck.
+
+- [ ] **Step 4: Run ruff/black**
+
+Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -m ruff check tests/unit/test_serving_config.py tests/integration/test_serving_api.py` and `black --check` on both. Fix with `ruff check --fix` / `black` if either fails.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/unit/test_serving_config.py tests/integration/test_serving_api.py
+git commit -m "test: fix cross-test env leakage in serving config/API tests"
+```
