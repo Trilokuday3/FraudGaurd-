@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { DecisionRow } from "@/lib/types";
+import { DecisionBadge } from "./DecisionBadge";
 
 interface DataTableProps {
   rows: DecisionRow[];
@@ -36,7 +37,7 @@ export function DataTable({ rows, onRowClick, pageSize = 10 }: DataTableProps) {
             >
               <td className="py-2 pr-4 font-mono">{row.transaction_id}</td>
               <td className="py-2 pr-4 font-mono">{row.model_score.toFixed(3)}</td>
-              <td className="py-2 pr-4">{row.decision}</td>
+              <td className="py-2 pr-4"><DecisionBadge decision={row.decision} /></td>
               <td className="py-2 pr-4">{row.decision_source}</td>
               <td className="py-2 pr-4">{new Date(row.created_at).toLocaleTimeString()}</td>
             </tr>
