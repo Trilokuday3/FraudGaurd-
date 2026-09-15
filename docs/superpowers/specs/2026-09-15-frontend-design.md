@@ -45,9 +45,11 @@ avoids a second transport to build/debug, cloud deployment (sub-project 8).
    `scripts/replay_transactions.py` is running alongside `make api` — proving
    the "live" claim is real, not a static seed.
 4. Investigations lets a user look up any transaction ID that has been
-   scored and see its score, decision, triggered rules, and full SHAP
-   contribution breakdown, matching exactly what `/investigations/{id}` and
-   `/explain` return.
+   scored and see its score, decision, triggered rules, and top-5 SHAP
+   contribution breakdown, matching exactly what `/investigations/{id}`
+   returns. (Not `/explain` — that endpoint recomputes SHAP from a supplied
+   feature row, which the frontend never has for a past transaction; only
+   the top-5 snapshot persisted at scoring time is available for lookback.)
 5. Threshold Simulator's slider recomputes and displays cost against the
    precomputed `cost_curve` returned by `GET /model/metadata` without
    calling the backend on every drag — the curve is fetched once, then
@@ -134,7 +136,7 @@ frontend/
 |---|---|---|
 | Dashboard | `/` | `GET /decisions/stats`, `GET /model/metadata` |
 | Live Transactions | `/live` | `GET /decisions` (polled every few seconds) |
-| Investigations | `/investigations`, `/investigations/[id]` | `GET /decisions` (browse), `GET /investigations/{id}`, `POST /explain` |
+| Investigations | `/investigations`, `/investigations/[id]` | `GET /decisions` (browse), `GET /investigations/{id}` (score, rules, top-5 SHAP) |
 | Model Center | `/model` | `GET /model/comparison`, `GET /model/metadata` |
 | Threshold Simulator | `/simulator` | `GET /model/metadata` (for `t_review`/`t_block`, and the new `cost_curve` field) |
 | Monitoring | `/monitoring` | `GET /decisions/stats?since_minutes=...` |
