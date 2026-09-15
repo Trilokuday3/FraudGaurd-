@@ -129,6 +129,10 @@ def app_client(tmp_path, monkeypatch):
     # state (loaded model, session factory) at import time
     import importlib
 
+    import serving.config
+
+    importlib.reload(serving.config)
+
     import serving.app as app_module
 
     importlib.reload(app_module)
