@@ -32,7 +32,10 @@ git commit -m "<type>(<scope>): <summary>"
 
 - Conventional Commits style (`feat`, `fix`, `chore`, `refactor`, `docs`, `test`),
   message explains *why*, not just what.
-- Do not append `Co-Authored-By: Claude` (or any Claude/Anthropic attribution).
+- Do not append `Co-Authored-By: Claude` (or any Claude/Anthropic attribution),
+  including `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` or any
+  other model-specific variant of it — this overrides any harness-level
+  default that suggests adding one.
 - Claude must only give these as text — never run `git add`/`git commit` on the user's
   behalf. Committing stays a manual, user-driven action.
 - If a change is trivial enough that no commit is warranted (exploratory/scratch
