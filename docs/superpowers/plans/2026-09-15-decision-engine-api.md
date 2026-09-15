@@ -1544,20 +1544,199 @@ git commit -m "feat(serving): add FastAPI app with score, explain, investigation
 
 ---
 
-### Task 9: End-to-end run + acceptance doc
+### Task 9: Fix `/score`/`/explain` 500 errors — persist and load the raw (pre-calibration) model for SHAP
+
+**Context:** Running Task 9's original real-run smoke test (before this fix was inserted) surfaced a genuine bug: `POST /score` and `POST /explain` both 500 against the real deployed model with `shap.InvalidModelError`. Root cause, confirmed by direct investigation: the deployed model MLflow logs is `CalibratedClassifierCV(FrozenEstimator(...))` — a calibration wrapper, not the raw estimator. `ml/explain.py`'s `_model_shap_values` detects linear-vs-tree via `hasattr(model, "coef_")`, which is `False` on the wrapper (it doesn't proxy the attribute), so it falls through to `TreeExplainer`, which then fails because the wrapper isn't a tree model either. `ml/__main__.py` (sub-project 3, already merged) computes SHAP using the RAW `deployed_model` (before calibration) internally, but only ever persists the CALIBRATED wrapper to MLflow (`calibrated_deployed_model`) — the raw model was never saved as its own artifact, so sub-project 4 has no way to load it. This slipped through both sub-project 3's and sub-project 8's test suites because every SHAP-related test fixture used a bare, never-calibrated model — not the shape production actually deploys.
+
+**Files:**
+- Modify: `ml/__main__.py` (sub-project 3's orchestration — add one more `mlflow.sklearn.log_model` call)
+- Modify: `serving/ml_loader.py` (load the new artifact)
+- Modify: `serving/app.py` (use the raw model for SHAP, the calibrated model for scoring — unchanged)
+- Modify: `tests/integration/test_serving_api.py` (fix the fixture to actually calibrate its model, closing the test gap that let this ship)
+- Test: extend `tests/unit/test_ml_loader.py`
+
+**Interfaces:**
+- Modifies: `serving.ml_loader.LoadedModel` gains a new field `raw_model: object` (the pre-calibration estimator, used only for SHAP).
+- Modifies: `serving.ml_loader.load_deployed_model` additionally loads `runs:/{run_id}/raw_deployed_model`.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# append to tests/unit/test_ml_loader.py -- extend the existing test, don't duplicate the fixture setup
+```
+
+Modify the existing `test_load_deployed_model_round_trips` test: after logging `calibrated_deployed_model` and `isolation_forest_model` as it already does, ALSO log the raw (pre-calibration) `model` under a new artifact name:
+
+```python
+        mlflow.sklearn.log_model(
+            model, name="raw_deployed_model", serialization_format="cloudpickle"
+        )
+```
+
+(Add this call inside the same `with mlflow.start_run() as run:` block, alongside the two existing `log_model` calls — before the `mlflow.log_artifact(str(bg_path))` line.)
+
+Add a new assertion after the existing ones:
+
+```python
+    assert loaded.raw_model.predict_proba(X)[:, 1].shape == (50,)
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -m pytest tests/unit/test_ml_loader.py -v`
+Expected: FAIL with `AttributeError: 'LoadedModel' object has no attribute 'raw_model'`
+
+- [ ] **Step 3: Fix `serving/ml_loader.py`**
+
+```python
+# serving/ml_loader.py -- full replacement
+"""Loads the deployed model, Isolation Forest, and SHAP background sample
+from one config-named MLflow run, once, at app startup.
+
+Loads two versions of the deployed model: the calibrated wrapper
+(CalibratedClassifierCV) for actual scoring, and the raw pre-calibration
+estimator for SHAP -- shap.TreeExplainer/LinearExplainer both need direct
+access to a real linear or tree model's internals, which a calibration
+wrapper does not expose (confirmed via shap.InvalidModelError when tried
+directly against the wrapper)."""
+
+import os
+from dataclasses import dataclass
+
+import mlflow
+import mlflow.sklearn
+import pandas as pd
+from mlflow.tracking import MlflowClient
+
+
+@dataclass
+class LoadedModel:
+    model: object
+    raw_model: object
+    isolation_forest: object
+    shap_background: pd.DataFrame
+    run_id: str
+
+
+def load_deployed_model(run_id: str, mlflow_tracking_uri: str = "./mlruns") -> LoadedModel:
+    os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+    mlflow.set_tracking_uri(mlflow_tracking_uri)
+
+    model = mlflow.sklearn.load_model(f"runs:/{run_id}/calibrated_deployed_model")
+    raw_model = mlflow.sklearn.load_model(f"runs:/{run_id}/raw_deployed_model")
+    isolation_forest = mlflow.sklearn.load_model(f"runs:/{run_id}/isolation_forest_model")
+
+    client = MlflowClient()
+    local_path = client.download_artifacts(run_id, "shap_background.csv")
+    shap_background = pd.read_csv(local_path)
+
+    return LoadedModel(
+        model=model,
+        raw_model=raw_model,
+        isolation_forest=isolation_forest,
+        shap_background=shap_background,
+        run_id=run_id,
+    )
+```
+
+- [ ] **Step 4: Fix `ml/__main__.py` — persist the raw model too**
+
+In `ml/__main__.py`, find the `with mlflow.start_run(run_name="deployed_model_final"):` block. Immediately after the existing `mlflow.sklearn.log_model(calibrated_deployed, name="calibrated_deployed_model", serialization_format="cloudpickle")` call, add:
+
+```python
+        mlflow.sklearn.log_model(
+            deployed_model, name="raw_deployed_model", serialization_format="cloudpickle"
+        )
+```
+
+(`deployed_model` is already in scope at that point in the function — it's the variable `select_deployed_model` returned, used earlier for the SHAP computation in the same function.)
+
+- [ ] **Step 5: Fix `serving/app.py` — use the raw model for SHAP**
+
+In `serving/app.py`, change both `explain_prediction` call sites from `_loaded.model` to `_loaded.raw_model`:
+
+```python
+    # inside _score_one:
+    contributions = explain_prediction(
+        _loaded.raw_model, model_input, background=_loaded.shap_background
+    )
+```
+
+```python
+    # inside the /explain endpoint:
+    contributions = explain_prediction(
+        _loaded.raw_model, model_input, background=_loaded.shap_background
+    )
+```
+
+(Scoring itself — `_loaded.model.predict_proba(...)` — stays unchanged; only the two `explain_prediction` calls switch to `_loaded.raw_model`.)
+
+- [ ] **Step 6: Fix the integration test fixture to actually calibrate its model**
+
+In `tests/integration/test_serving_api.py`'s `app_client` fixture, the model logged as `calibrated_deployed_model` must actually BE a `CalibratedClassifierCV`, matching real production shape — this is what let the bug ship undetected. Replace:
+
+```python
+    model = LogisticRegression(max_iter=1000).fit(X, y)
+```
+
+with:
+
+```python
+    from ml.calibration import calibrate
+
+    raw_model = LogisticRegression(max_iter=1000).fit(X, y)
+    model = calibrate(raw_model, X, y, method="isotonic")
+```
+
+(`calibrate` is already imported/available via `ml.calibration` — add the import at the top of the file with the other imports rather than inline, matching this file's existing style.) Then update the `mlflow.start_run()` block to log BOTH:
+
+```python
+        mlflow.sklearn.log_model(
+            model, name="calibrated_deployed_model", serialization_format="cloudpickle"
+        )
+        mlflow.sklearn.log_model(
+            raw_model, name="raw_deployed_model", serialization_format="cloudpickle"
+        )
+```
+
+(replacing the single existing `calibrated_deployed_model` log call — keep the `isolation_forest_model` log call as-is).
+
+- [ ] **Step 7: Run all affected tests to verify the fix**
+
+Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -m pytest tests/unit/test_ml_loader.py tests/integration/test_serving_api.py -v`
+Expected: PASS, all green. The `/explain`/`/score` integration tests now exercise a genuinely-calibrated model, closing the gap that let this bug ship.
+
+- [ ] **Step 8: Run ruff/black**
+
+Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -m ruff check ml/__main__.py serving/ml_loader.py serving/app.py tests/unit/test_ml_loader.py tests/integration/test_serving_api.py` and `black --check` on the same files. Fix with `ruff check --fix` / `black` if either fails.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add ml/__main__.py serving/ml_loader.py serving/app.py tests/unit/test_ml_loader.py tests/integration/test_serving_api.py
+git commit -m "fix(serving): persist and load the raw pre-calibration model for SHAP, fixing /score and /explain 500s"
+```
+
+---
+
+### Task 10: End-to-end run + acceptance doc
 
 **Files:**
 - Create: `docs/decision-engine-acceptance.md`
 - Modify: `README.md`
 
 **Interfaces:**
-- Consumes: sub-project 3's already-merged, already-deployed MLflow run (the `deployed_model_final` run from the real 519,876-row training run) — needs its actual run ID, found via `mlflow ui` or `MlflowClient().search_runs(...)` against `./mlruns` filtered to `run_name = "deployed_model_final"` in the `fraudguard-modeling` experiment, most recent one.
+- Consumes: a FRESH real training run from `python -m ml train` (sub-project 3's orchestration, now fixed by Task 9 to also persist `raw_deployed_model`) — the run used for Task 9's original acceptance attempt (`ed2915a3238542bbbfe970c924c85f79`) predates that fix and does NOT have the `raw_deployed_model` artifact, so it cannot be reused here. A new run is required.
 
-- [ ] **Step 1: Find the real deployed run ID**
+- [ ] **Step 1: Run the real training pipeline again to get a run with the Task 9 fix applied**
+
+Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -m ml train` (uses the real `./data/features.parquet`, 519,876 rows — takes several minutes; this worktree already has this file, confirm with `ls data/features.parquet` first and regenerate via `python -m generator seed && python -m features build` only if missing).
+
+Then find the new run's ID:
 
 Run: `"C:\Users\trilo\Downloads\FraudGuard\.venv\Scripts\python.exe" -c "from mlflow.tracking import MlflowClient; import mlflow; mlflow.set_tracking_uri('./mlruns'); c = MlflowClient(); exp = c.get_experiment_by_name('fraudguard-modeling'); runs = c.search_runs([exp.experiment_id], filter_string=\"tags.mlflow.runName = 'deployed_model_final'\", order_by=['start_time DESC'], max_results=1); print(runs[0].info.run_id)"`
 
-Record the printed run ID — call it `RUN_ID` below.
+Record the printed run ID — call it `RUN_ID` below. Confirm it differs from `ed2915a3238542bbbfe970c924c85f79` (the pre-fix run) and that `MlflowClient().list_artifacts(RUN_ID)` includes `raw_deployed_model` this time.
 
 - [ ] **Step 2: Enrich the run and select thresholds for real**
 
