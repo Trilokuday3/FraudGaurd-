@@ -1,0 +1,11 @@
+{
+  "t_review": 0.04,
+  "t_block": 0.82,
+  "total_cost": 34782.91,
+  "model_run_id": "a13a804d60b04ad2a0d1f413cdf976d2",
+  "cost_matrix": {
+    "review_cost": 3.5,
+    "false_positive_cost": 25.0,
+    "false_negative_cost": "transaction amount"
+  }
+}

@@ -21,6 +21,10 @@ Full design: `docs/superpowers/specs/2026-09-12-fraudguard-platform-roadmap.md`.
 `docs/superpowers/specs/2026-09-12-modeling-design.md`,
 `docs/ml-acceptance.md`, and `ml/model_card.md`.
 
+**Sub-project 4 (Decision Engine + API) — done.** See
+`docs/superpowers/specs/2026-09-15-decision-engine-api-design.md` and
+`docs/decision-engine-acceptance.md`.
+
 ## Quickstart
 
 ```
@@ -32,6 +36,7 @@ pytest tests/dq -v                # schema + referential-integrity gate on ./dat
 make features                     # writes ./data/features.parquet
 pytest tests/features -v          # leakage + schema gate on the feature table
 make train                        # trains baseline through champion candidates, selects the overall best performer, plus Isolation Forest
+make api                          # serves the decision engine (score/explain/investigate)
 ```
 
 ## Layout
