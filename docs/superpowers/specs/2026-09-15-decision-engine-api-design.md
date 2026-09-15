@@ -191,13 +191,16 @@ serving time has no `train_X` to sample from, and depending on the full
 (gitignored, ~520k-row) `data/` directory being present on a deployed server
 is exactly the kind of environment coupling this sub-project should avoid.
 
-**Fix**: a small addition, `ml/save_shap_background.py` (or a flag on the
-existing training run), that samples ~100 rows from `train_X` at the end of
-`_run_training` and logs them as a CSV artifact on the same MLflow run
-(`mlflow.log_artifact(..., artifact_path="shap_background.csv")`). The API
-loads this artifact once at startup alongside the model, exactly the same
-run ID as the model itself, so the two are always from the same training
-pass.
+**Fix**: a small addition, `ml/enrich_deployed_run.py`, that samples ~100
+rows from `train_X` and logs them as a CSV artifact on the same MLflow run
+(`mlflow.log_artifact(..., artifact_path="shap_background.csv")`). While
+touching that run, it also backfills the deployed model's own validation
+PR-AUC as a metric (`deployed_val_pr_auc`) — sub-project 3 only logged each
+candidate's val PR-AUC on that *candidate's own* run, not on the final
+`deployed_model_final` run, so without this, `/model/metadata` would have
+no single run to read validation performance from. The API loads the SHAP
+background artifact once at startup alongside the model, from the same run
+ID as the model itself, so the two are always from the same training pass.
 
 Config (`serving/config.py`, `pydantic-settings` + `.env`):
 - `MLFLOW_TRACKING_URI` (defaults to `./mlruns`, same as `ml/__main__.py`)
@@ -217,13 +220,13 @@ Config (`serving/config.py`, `pydantic-settings` + `.env`):
 | `serving/schemas.py` | Pydantic request/response models | import | `fraudguard_core.schemas` (mirrors `features_schema`) |
 | `serving/ml_loader.py` | loads the model, Isolation Forest, SHAP background sample from the config-named MLflow run once at startup | import, FastAPI dependency | MLflow, `ml.explain` |
 | `serving/app.py` | FastAPI app, the 6 endpoints | `uvicorn serving.app:app` | everything above |
-| `ml/save_shap_background.py` | one-off: persist a background sample artifact for an already-trained run | CLI script | `ml/data.py`, MLflow |
+| `ml/enrich_deployed_run.py` | one-off: persist a SHAP background sample artifact and backfill `deployed_val_pr_auc` on an already-trained run | CLI script | `ml/data.py`, `ml/evaluate.py`, MLflow |
 
 ## Deliverables checklist
 
 - [ ] `decision/rules.py`, `decision/select_thresholds.py`, `decision/thresholds.json` (generated, not hand-written)
 - [ ] `serving/config.py`, `serving/models.py`, `serving/schemas.py`, `serving/ml_loader.py`, `serving/app.py`
-- [ ] `ml/save_shap_background.py`
+- [ ] `ml/enrich_deployed_run.py`
 - [ ] `requirements-dev.txt` additions: `fastapi`, `uvicorn`, `sqlalchemy`, `httpx` (FastAPI `TestClient` dependency)
 - [ ] `tests/unit/test_decision_rules.py`, `tests/unit/test_select_thresholds.py`
 - [ ] `tests/integration/test_serving_api.py` (real SQLite, real loaded model, FastAPI `TestClient`)
