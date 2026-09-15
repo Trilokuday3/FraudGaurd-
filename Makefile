@@ -1,4 +1,4 @@
-.PHONY: venv seed dq test lint features train api
+.PHONY: venv seed dq test lint features train api replay
 
 venv:
 	python -m venv .venv
@@ -19,6 +19,9 @@ train:
 
 api:
 	uvicorn serving.app:app --reload
+
+replay:
+	python -m scripts.replay_transactions --loop
 
 test:
 	pytest tests/unit tests/features tests/dq tests/integration -v
