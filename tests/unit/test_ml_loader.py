@@ -31,6 +31,9 @@ def test_load_deployed_model_round_trips(tmp_path):
         mlflow.sklearn.log_model(
             iso, name="isolation_forest_model", serialization_format="cloudpickle"
         )
+        mlflow.sklearn.log_model(
+            model, name="raw_deployed_model", serialization_format="cloudpickle"
+        )
         bg_path = tmp_path / "shap_background.csv"
         background.to_csv(bg_path, index=False)
         mlflow.log_artifact(str(bg_path))
@@ -41,3 +44,4 @@ def test_load_deployed_model_round_trips(tmp_path):
     assert loaded.model.predict_proba(X)[:, 1].shape == (50,)
     assert loaded.isolation_forest.score_samples(X).shape == (50,)
     assert len(loaded.shap_background) == 10
+    assert loaded.raw_model.predict_proba(X)[:, 1].shape == (50,)

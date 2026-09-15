@@ -50,7 +50,7 @@ def _score_one(row: FeatureRow) -> ScoreResponse:
     )
 
     contributions = explain_prediction(
-        _loaded.model, model_input, background=_loaded.shap_background
+        _loaded.raw_model, model_input, background=_loaded.shap_background
     )
     top5 = dict(sorted(contributions.items(), key=lambda kv: abs(kv[1]), reverse=True)[:5])
 
@@ -93,7 +93,7 @@ def score_batch(rows: list[FeatureRow]) -> list[ScoreResponse]:
 def explain(row: FeatureRow) -> ExplainResponse:
     model_input = _feature_row_to_model_input(row)
     contributions = explain_prediction(
-        _loaded.model, model_input, background=_loaded.shap_background
+        _loaded.raw_model, model_input, background=_loaded.shap_background
     )
     return ExplainResponse(transaction_id=row.transaction_id, contributions=contributions)
 

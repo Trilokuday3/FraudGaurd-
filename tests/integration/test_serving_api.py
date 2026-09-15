@@ -9,6 +9,7 @@ import pytest
 from sklearn.ensemble import IsolationForest
 from sklearn.linear_model import LogisticRegression
 
+from ml.calibration import calibrate
 from ml.data import prepare_model_matrix
 
 
@@ -90,7 +91,8 @@ def app_client(tmp_path, monkeypatch):
     X = prepare_model_matrix(raw_rows)
     y = (X["amount_vs_customer_p95"] > 1.0).astype(int)
 
-    model = LogisticRegression(max_iter=1000).fit(X, y)
+    raw_model = LogisticRegression(max_iter=1000).fit(X, y)
+    model = calibrate(raw_model, X, y, method="isotonic")
     iso = IsolationForest(random_state=42).fit(X)
     background = X.sample(20, random_state=42)
 
@@ -98,6 +100,9 @@ def app_client(tmp_path, monkeypatch):
         run_id = run.info.run_id
         mlflow.sklearn.log_model(
             model, name="calibrated_deployed_model", serialization_format="cloudpickle"
+        )
+        mlflow.sklearn.log_model(
+            raw_model, name="raw_deployed_model", serialization_format="cloudpickle"
         )
         mlflow.sklearn.log_model(
             iso, name="isolation_forest_model", serialization_format="cloudpickle"
