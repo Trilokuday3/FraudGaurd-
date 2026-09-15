@@ -3,6 +3,7 @@ metadata, health."""
 
 import json
 import warnings
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -15,6 +16,10 @@ from serving.config import settings
 from serving.ml_loader import load_deployed_model
 from serving.models import Decision, make_session_factory
 from serving.schemas import (
+    DecisionRow,
+    DecisionsListResponse,
+    DecisionsStatsBucket,
+    DecisionsStatsResponse,
     ExplainResponse,
     FeatureRow,
     InvestigationResponse,
@@ -113,6 +118,83 @@ def score_batch(rows: list[FeatureRow]) -> list[ScoreResponse]:
         session.close()
 
     return responses
+
+
+def _decision_to_row(record: Decision) -> DecisionRow:
+    return DecisionRow(
+        id=record.id,
+        transaction_id=record.transaction_id,
+        model_score=record.model_score,
+        decision=record.decision,
+        triggered_rules=record.triggered_rules,
+        decision_source=record.decision_source,
+        model_run_id=record.model_run_id,
+        shap_top_features=record.shap_top_features,
+        created_at=record.created_at,
+    )
+
+
+@app.get("/decisions", response_model=DecisionsListResponse)
+def list_decisions(
+    decision: str | None = None,
+    limit: int = 50,
+    before_id: int | None = None,
+) -> DecisionsListResponse:
+    limit = min(max(limit, 1), 500)
+    session = SessionLocal()
+    try:
+        query = session.query(Decision)
+        if decision is not None:
+            query = query.filter(Decision.decision == decision)
+        if before_id is not None:
+            query = query.filter(Decision.id < before_id)
+        rows = query.order_by(Decision.id.desc()).limit(limit + 1).all()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_cursor = rows[-1].id if has_more and rows else None
+        return DecisionsListResponse(
+            items=[_decision_to_row(r) for r in rows], next_cursor=next_cursor
+        )
+    finally:
+        session.close()
+
+
+@app.get("/decisions/stats", response_model=DecisionsStatsResponse)
+def decisions_stats(since_minutes: int | None = None) -> DecisionsStatsResponse:
+    session = SessionLocal()
+    try:
+        query = session.query(Decision)
+        if since_minutes is not None:
+            cutoff = datetime.now(UTC) - timedelta(minutes=since_minutes)
+            query = query.filter(Decision.created_at >= cutoff)
+        rows = query.all()
+
+        total = len(rows)
+        approve_count = sum(1 for r in rows if r.decision == "approve")
+        review_count = sum(1 for r in rows if r.decision == "review")
+        block_count = sum(1 for r in rows if r.decision == "block")
+        avg_score = (sum(r.model_score for r in rows) / total) if total else 0.0
+
+        bucket_counts: dict[tuple[str, str], int] = {}
+        for r in rows:
+            minute_key = r.created_at.strftime("%Y-%m-%dT%H:%M")
+            key = (minute_key, r.decision)
+            bucket_counts[key] = bucket_counts.get(key, 0) + 1
+        buckets = [
+            DecisionsStatsBucket(minute=minute, decision=dec, count=count)
+            for (minute, dec), count in sorted(bucket_counts.items())
+        ]
+
+        return DecisionsStatsResponse(
+            total=total,
+            approve_count=approve_count,
+            review_count=review_count,
+            block_count=block_count,
+            avg_score=avg_score,
+            buckets=buckets,
+        )
+    finally:
+        session.close()
 
 
 @app.post("/explain", response_model=ExplainResponse)

@@ -250,3 +250,63 @@ def test_score_persists_exactly_one_decision_row(app_client):
 
     assert after == before + 1
     assert matching == 1
+
+
+def test_list_decisions_returns_most_recent_first(app_client):
+    for i in range(3):
+        app_client.post("/score", json=_valid_feature_row(transaction_id=f"TXN-LIST-{i}"))
+
+    response = app_client.get("/decisions?limit=2")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 2
+    assert body["items"][0]["created_at"] >= body["items"][1]["created_at"]
+
+
+def test_list_decisions_filters_by_decision_type(app_client):
+    app_client.post(
+        "/score",
+        json=_valid_feature_row(
+            transaction_id="TXN-FILTER-BLOCK",
+            is_new_device=True,
+            is_new_country_for_customer=True,
+            ip_country_mismatch=True,
+        ),
+    )
+    response = app_client.get("/decisions?decision=block")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) >= 1
+    assert all(item["decision"] == "block" for item in body["items"])
+
+
+def test_list_decisions_paginates_with_before_id_cursor(app_client):
+    for i in range(5):
+        app_client.post("/score", json=_valid_feature_row(transaction_id=f"TXN-CURSOR-{i}"))
+
+    first_page = app_client.get("/decisions?limit=2").json()
+    assert first_page["next_cursor"] is not None
+
+    second_page = app_client.get(f"/decisions?limit=2&before_id={first_page['next_cursor']}").json()
+    first_ids = {item["id"] for item in first_page["items"]}
+    second_ids = {item["id"] for item in second_page["items"]}
+    assert first_ids.isdisjoint(second_ids)
+
+
+def test_decisions_stats_reports_totals_and_buckets(app_client):
+    app_client.post("/score", json=_valid_feature_row(transaction_id="TXN-STATS-1"))
+    app_client.post("/score", json=_valid_feature_row(transaction_id="TXN-STATS-2"))
+
+    response = app_client.get("/decisions/stats")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 2
+    assert body["approve_count"] + body["review_count"] + body["block_count"] == body["total"]
+    assert isinstance(body["buckets"], list)
+
+
+def test_decisions_stats_since_minutes_excludes_nothing_within_window(app_client):
+    app_client.post("/score", json=_valid_feature_row(transaction_id="TXN-STATS-WINDOW"))
+    response = app_client.get("/decisions/stats?since_minutes=60")
+    assert response.status_code == 200
+    assert response.json()["total"] >= 1
