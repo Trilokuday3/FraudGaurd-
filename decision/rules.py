@@ -7,9 +7,12 @@ DECISION_ORDER: dict[str, int] = {"approve": 0, "review": 1, "block": 2}
 # Illustrative example entries so the allowlist override path is reachable
 # and demonstrable in the deployed service (this project has no real
 # customer/merchant list to draw from) — same spirit as the illustrative
-# cost matrix in decision/select_thresholds.py.
-ALLOWLIST_CUSTOMER_IDS: frozenset[str] = frozenset({"CUST000001"})
-ALLOWLIST_MERCHANT_IDS: frozenset[str] = frozenset({"MERC000001"})
+# cost matrix in decision/select_thresholds.py. Hyphenated, non-numeric
+# suffixes so these can never collide with the generator's zero-padded
+# numeric ID formats (customer_id: CUST{idx:07d}, merchant_id:
+# MERC{idx:06d}), regardless of how many digits those formats use.
+ALLOWLIST_CUSTOMER_IDS: frozenset[str] = frozenset({"CUST-EXAMPLE-ALLOWLISTED"})
+ALLOWLIST_MERCHANT_IDS: frozenset[str] = frozenset({"MERC-EXAMPLE-ALLOWLISTED"})
 
 
 def evaluate_rules(
