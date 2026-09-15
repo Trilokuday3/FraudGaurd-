@@ -52,6 +52,59 @@ class InvestigationResponse(BaseModel):
     created_at: datetime
 
 
+class DecisionRow(BaseModel):
+    id: int
+    transaction_id: str
+    model_score: float
+    decision: str
+    triggered_rules: list[str]
+    decision_source: str
+    model_run_id: str
+    shap_top_features: dict[str, float]
+    created_at: datetime
+
+
+class DecisionsListResponse(BaseModel):
+    items: list[DecisionRow]
+    next_cursor: int | None
+
+
+class DecisionsStatsBucket(BaseModel):
+    minute: str
+    decision: str
+    count: int
+
+
+class DecisionsStatsResponse(BaseModel):
+    total: int
+    approve_count: int
+    review_count: int
+    block_count: int
+    avg_score: float
+    buckets: list[DecisionsStatsBucket]
+
+
+class CostCurvePoint(BaseModel):
+    t_review: float
+    cost: float
+
+
+class ModelComparisonCandidate(BaseModel):
+    name: str
+    val_pr_auc: float
+    is_deployed: bool
+
+
+class CalibrationPoint(BaseModel):
+    mean_predicted: float
+    fraction_positive: float
+
+
+class ShapImportance(BaseModel):
+    feature: str
+    mean_abs_shap: float
+
+
 class ModelMetadataResponse(BaseModel):
     model_run_id: str
     deployed_model_name: str
@@ -60,3 +113,10 @@ class ModelMetadataResponse(BaseModel):
     calibration_method: str
     t_review: float
     t_block: float
+    cost_curve: list[CostCurvePoint]
+
+
+class ModelComparisonResponse(BaseModel):
+    candidates: list[ModelComparisonCandidate]
+    calibration_curve: list[CalibrationPoint]
+    shap_importances: list[ShapImportance]
