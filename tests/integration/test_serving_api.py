@@ -357,3 +357,22 @@ def test_model_comparison_returns_candidates_and_curves(app_client):
     assert deployed[0]["name"] == "baseline"
     assert len(body["calibration_curve"]) == 2
     assert len(body["shap_importances"]) == 2
+
+
+def test_model_comparison_returns_503_when_artifact_missing(app_client, monkeypatch):
+    # Simulates a deployed run that predates ml/enrich_deployed_run.py
+    # writing model_comparison.json (finding 3): download_artifacts (or the
+    # subsequent file open) fails, and the endpoint should surface a clear
+    # 503 rather than an uninformative bare 500.
+    import serving.app as app_module
+
+    def _raise_not_found(*args, **kwargs):
+        raise FileNotFoundError("model_comparison.json not found for this run")
+
+    monkeypatch.setattr(app_module, "_load_json_artifact", _raise_not_found)
+
+    response = app_client.get("/model/comparison")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "model_comparison.json" in detail
+    assert "enrich_deployed_run" in detail

@@ -56,6 +56,7 @@ from serving.schemas import (
     DecisionsListResponse,
     DecisionsStatsBucket,
     DecisionsStatsResponse,
+    InvestigationResponse,
     ModelComparisonCandidate,
     ModelComparisonResponse,
     ModelMetadataResponse,
@@ -111,3 +112,40 @@ def test_model_comparison_response_accepts_valid_payload():
     )
     assert response.candidates[0].is_deployed is True
     assert response.shap_importances[0].feature == "amount"
+
+
+def test_decision_row_serializes_naive_created_at_with_utc_offset():
+    # serving/models.py's Decision.created_at is written as an
+    # offset-aware UTC datetime, but SQLAlchemy's DateTime column strips
+    # the offset on the SQLite round-trip -- so by the time a naive
+    # datetime reaches this schema, it must still serialize with an
+    # explicit UTC marker or the frontend's `new Date(...)` will parse it
+    # as the viewer's local time instead of UTC (see finding 4).
+    row = DecisionRow(
+        id=1,
+        transaction_id="TXN0001",
+        model_score=0.42,
+        decision="review",
+        triggered_rules=["velocity_spike"],
+        decision_source="rule",
+        model_run_id="run123",
+        shap_top_features={"amount": 0.1},
+        created_at=datetime(2026, 1, 1, 10, 0, 0),  # naive, no tzinfo
+    )
+    serialized = row.model_dump(mode="json")["created_at"]
+    assert serialized.endswith("+00:00") or serialized.endswith("Z")
+
+
+def test_investigation_response_serializes_naive_created_at_with_utc_offset():
+    response = InvestigationResponse(
+        transaction_id="TXN0001",
+        model_score=0.42,
+        decision="review",
+        triggered_rules=["velocity_spike"],
+        decision_source="rule",
+        model_run_id="run123",
+        shap_top_features={"amount": 0.1},
+        created_at=datetime(2026, 1, 1, 10, 0, 0),  # naive, no tzinfo
+    )
+    serialized = response.model_dump(mode="json")["created_at"]
+    assert serialized.endswith("+00:00") or serialized.endswith("Z")

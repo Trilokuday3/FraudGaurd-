@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from mlflow.tracking import MlflowClient
 
 from decision.rules import combine_decision, evaluate_rules
@@ -34,6 +35,21 @@ from serving.schemas import (
 )
 
 app = FastAPI(title="FraudGuard Decision Engine API")
+
+# Local-dev-scoped CORS default: the frontend (`frontend/`) runs client-rendered
+# pages (Live Transactions, Monitoring, Investigations) that fetch this API
+# directly from the browser, and Next's dev server doesn't always land on the
+# same port (3000, 3002, ... depending on what's free). A regex matching any
+# localhost port keeps that working without hardcoding one. A stricter,
+# settings-driven allowed-origins list belongs to the deployment sub-project
+# (out of scope here).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://localhost:\d+",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _CANDIDATE_RUN_NAMES = ["baseline", "random_forest", "xgboost", "lightgbm"]
 
@@ -294,7 +310,23 @@ def model_comparison() -> ModelComparisonResponse:
                 )
             )
 
-    comparison_artifact = _load_json_artifact(client, _loaded.run_id, "model_comparison.json")
+    try:
+        comparison_artifact = _load_json_artifact(client, _loaded.run_id, "model_comparison.json")
+    except Exception as exc:
+        # Covers both MLflow's own artifact-not-found errors and the plain
+        # OSError/FileNotFoundError raised while opening the downloaded file
+        # -- either way it means this run predates ml/enrich_deployed_run.py
+        # writing model_comparison.json (or was never enriched).
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "model_comparison.json artifact not found for the deployed run "
+                f"({_loaded.run_id!r}). Re-run enrichment for this run before "
+                "calling /model/comparison: "
+                "python -c \"from ml.enrich_deployed_run import enrich_deployed_run; "
+                f"enrich_deployed_run({_loaded.run_id!r})\""
+            ),
+        ) from exc
     calibration_curve = [
         CalibrationPoint(mean_predicted=p, fraction_positive=t)
         for p, t in zip(

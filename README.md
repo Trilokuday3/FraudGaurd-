@@ -46,6 +46,7 @@ pytest tests/dq -v                # schema + referential-integrity gate on ./dat
 make features                     # writes ./data/features.parquet
 pytest tests/features -v          # leakage + schema gate on the feature table
 make train                        # trains baseline through champion candidates, selects the overall best performer, plus Isolation Forest
+python -c "from ml.enrich_deployed_run import enrich_deployed_run; enrich_deployed_run('<run_id>')"  # persists shap_background + model_comparison.json onto the deployed run (required for /explain and /model/comparison)
 cp .env.example .env               # then fill in MLFLOW_RUN_ID (see docs/decision-engine-acceptance.md)
 make api                          # serves the decision engine (score/explain/investigate)
 cd frontend && cp .env.example .env.local && npm install && npm run dev
