@@ -45,3 +45,107 @@ def test_feature_row_rejects_wrong_type():
     payload["amount"] = "not-a-number"
     with pytest.raises(ValidationError):
         FeatureRow(**payload)
+
+
+from datetime import datetime
+
+from serving.schemas import (
+    CalibrationPoint,
+    CostCurvePoint,
+    DecisionRow,
+    DecisionsListResponse,
+    DecisionsStatsBucket,
+    DecisionsStatsResponse,
+    InvestigationResponse,
+    ModelComparisonCandidate,
+    ModelComparisonResponse,
+    ModelMetadataResponse,
+    ShapImportance,
+)
+
+
+def test_decisions_list_response_accepts_valid_payload():
+    row = DecisionRow(
+        id=1,
+        transaction_id="TXN0001",
+        model_score=0.42,
+        decision="review",
+        triggered_rules=["velocity_spike"],
+        decision_source="rule",
+        model_run_id="run123",
+        shap_top_features={"amount": 0.1},
+        created_at=datetime(2026, 1, 1, 10, 0, 0),
+    )
+    response = DecisionsListResponse(items=[row], next_cursor=1)
+    assert response.items[0].transaction_id == "TXN0001"
+    assert response.next_cursor == 1
+
+
+def test_decisions_stats_response_accepts_valid_payload():
+    bucket = DecisionsStatsBucket(minute="2026-01-01T10:00", decision="approve", count=3)
+    response = DecisionsStatsResponse(
+        total=10, approve_count=7, review_count=2, block_count=1, avg_score=0.2, buckets=[bucket]
+    )
+    assert response.total == 10
+    assert response.buckets[0].count == 3
+
+
+def test_model_metadata_response_includes_cost_curve():
+    response = ModelMetadataResponse(
+        model_run_id="run123",
+        deployed_model_name="baseline",
+        val_pr_auc=0.5,
+        test_pr_auc=0.5,
+        calibration_method="isotonic",
+        t_review=0.3,
+        t_block=0.7,
+        cost_curve=[CostCurvePoint(t_review=0.3, cost=100.0)],
+    )
+    assert response.cost_curve[0].t_review == 0.3
+
+
+def test_model_comparison_response_accepts_valid_payload():
+    response = ModelComparisonResponse(
+        candidates=[ModelComparisonCandidate(name="baseline", val_pr_auc=0.5, is_deployed=True)],
+        calibration_curve=[CalibrationPoint(mean_predicted=0.1, fraction_positive=0.05)],
+        shap_importances=[ShapImportance(feature="amount", mean_abs_shap=0.2)],
+    )
+    assert response.candidates[0].is_deployed is True
+    assert response.shap_importances[0].feature == "amount"
+
+
+def test_decision_row_serializes_naive_created_at_with_utc_offset():
+    # serving/models.py's Decision.created_at is written as an
+    # offset-aware UTC datetime, but SQLAlchemy's DateTime column strips
+    # the offset on the SQLite round-trip -- so by the time a naive
+    # datetime reaches this schema, it must still serialize with an
+    # explicit UTC marker or the frontend's `new Date(...)` will parse it
+    # as the viewer's local time instead of UTC (see finding 4).
+    row = DecisionRow(
+        id=1,
+        transaction_id="TXN0001",
+        model_score=0.42,
+        decision="review",
+        triggered_rules=["velocity_spike"],
+        decision_source="rule",
+        model_run_id="run123",
+        shap_top_features={"amount": 0.1},
+        created_at=datetime(2026, 1, 1, 10, 0, 0),  # naive, no tzinfo
+    )
+    serialized = row.model_dump(mode="json")["created_at"]
+    assert serialized.endswith("+00:00") or serialized.endswith("Z")
+
+
+def test_investigation_response_serializes_naive_created_at_with_utc_offset():
+    response = InvestigationResponse(
+        transaction_id="TXN0001",
+        model_score=0.42,
+        decision="review",
+        triggered_rules=["velocity_spike"],
+        decision_source="rule",
+        model_run_id="run123",
+        shap_top_features={"amount": 0.1},
+        created_at=datetime(2026, 1, 1, 10, 0, 0),  # naive, no tzinfo
+    )
+    serialized = response.model_dump(mode="json")["created_at"]
+    assert serialized.endswith("+00:00") or serialized.endswith("Z")

@@ -2,10 +2,13 @@
 metadata, health."""
 
 import json
+import tempfile
 import warnings
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from mlflow.tracking import MlflowClient
 
 from decision.rules import combine_decision, evaluate_rules
@@ -15,14 +18,48 @@ from serving.config import settings
 from serving.ml_loader import load_deployed_model
 from serving.models import Decision, make_session_factory
 from serving.schemas import (
+    CalibrationPoint,
+    CostCurvePoint,
+    DecisionRow,
+    DecisionsListResponse,
+    DecisionsStatsBucket,
+    DecisionsStatsResponse,
     ExplainResponse,
     FeatureRow,
     InvestigationResponse,
+    ModelComparisonCandidate,
+    ModelComparisonResponse,
     ModelMetadataResponse,
     ScoreResponse,
+    ShapImportance,
 )
 
 app = FastAPI(title="FraudGuard Decision Engine API")
+
+# Local-dev-scoped CORS default: the frontend (`frontend/`) runs client-rendered
+# pages (Live Transactions, Monitoring, Investigations) that fetch this API
+# directly from the browser, and Next's dev server doesn't always land on the
+# same port (3000, 3002, ... depending on what's free). A regex matching any
+# localhost port keeps that working without hardcoding one. A stricter,
+# settings-driven allowed-origins list belongs to the deployment sub-project
+# (out of scope here).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"http://localhost:\d+",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_CANDIDATE_RUN_NAMES = ["baseline", "random_forest", "xgboost", "lightgbm"]
+
+
+def _load_json_artifact(client: MlflowClient, run_id: str, artifact_path: str) -> dict:
+    with tempfile.TemporaryDirectory() as tmp:
+        local_path = client.download_artifacts(run_id, artifact_path, tmp)
+        with open(local_path) as f:
+            return json.load(f)
+
 
 _loaded = load_deployed_model(settings.mlflow_run_id, settings.mlflow_tracking_uri)
 with open(settings.thresholds_path) as _f:
@@ -115,6 +152,83 @@ def score_batch(rows: list[FeatureRow]) -> list[ScoreResponse]:
     return responses
 
 
+def _decision_to_row(record: Decision) -> DecisionRow:
+    return DecisionRow(
+        id=record.id,
+        transaction_id=record.transaction_id,
+        model_score=record.model_score,
+        decision=record.decision,
+        triggered_rules=record.triggered_rules,
+        decision_source=record.decision_source,
+        model_run_id=record.model_run_id,
+        shap_top_features=record.shap_top_features,
+        created_at=record.created_at,
+    )
+
+
+@app.get("/decisions", response_model=DecisionsListResponse)
+def list_decisions(
+    decision: str | None = None,
+    limit: int = 50,
+    before_id: int | None = None,
+) -> DecisionsListResponse:
+    limit = min(max(limit, 1), 500)
+    session = SessionLocal()
+    try:
+        query = session.query(Decision)
+        if decision is not None:
+            query = query.filter(Decision.decision == decision)
+        if before_id is not None:
+            query = query.filter(Decision.id < before_id)
+        rows = query.order_by(Decision.id.desc()).limit(limit + 1).all()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_cursor = rows[-1].id if has_more and rows else None
+        return DecisionsListResponse(
+            items=[_decision_to_row(r) for r in rows], next_cursor=next_cursor
+        )
+    finally:
+        session.close()
+
+
+@app.get("/decisions/stats", response_model=DecisionsStatsResponse)
+def decisions_stats(since_minutes: int | None = None) -> DecisionsStatsResponse:
+    session = SessionLocal()
+    try:
+        query = session.query(Decision)
+        if since_minutes is not None:
+            cutoff = datetime.now(UTC) - timedelta(minutes=since_minutes)
+            query = query.filter(Decision.created_at >= cutoff)
+        rows = query.all()
+
+        total = len(rows)
+        approve_count = sum(1 for r in rows if r.decision == "approve")
+        review_count = sum(1 for r in rows if r.decision == "review")
+        block_count = sum(1 for r in rows if r.decision == "block")
+        avg_score = (sum(r.model_score for r in rows) / total) if total else 0.0
+
+        bucket_counts: dict[tuple[str, str], int] = {}
+        for r in rows:
+            minute_key = r.created_at.strftime("%Y-%m-%dT%H:%M")
+            key = (minute_key, r.decision)
+            bucket_counts[key] = bucket_counts.get(key, 0) + 1
+        buckets = [
+            DecisionsStatsBucket(minute=minute, decision=dec, count=count)
+            for (minute, dec), count in sorted(bucket_counts.items())
+        ]
+
+        return DecisionsStatsResponse(
+            total=total,
+            approve_count=approve_count,
+            review_count=review_count,
+            block_count=block_count,
+            avg_score=avg_score,
+            buckets=buckets,
+        )
+    finally:
+        session.close()
+
+
 @app.post("/explain", response_model=ExplainResponse)
 def explain(row: FeatureRow) -> ExplainResponse:
     model_input = _feature_row_to_model_input(row)
@@ -162,6 +276,73 @@ def model_metadata() -> ModelMetadataResponse:
         calibration_method="isotonic",
         t_review=_thresholds["t_review"],
         t_block=_thresholds["t_block"],
+        cost_curve=[CostCurvePoint(**pt) for pt in _thresholds.get("cost_curve", [])],
+    )
+
+
+@app.get("/model/comparison", response_model=ModelComparisonResponse)
+def model_comparison() -> ModelComparisonResponse:
+    client = MlflowClient()
+    deployed_run = client.get_run(_loaded.run_id)
+    deployed_name = deployed_run.data.params.get("deployed_model", "unknown")
+
+    # Search within the deployed run's own experiment rather than a
+    # hardcoded experiment name: in production this is always
+    # "fraudguard-modeling" (ml/__main__.py logs the deployed run and all
+    # candidate runs into that one experiment), and this also makes the
+    # lookup work correctly against whatever experiment name a test/other
+    # environment's fixture happens to use.
+    candidates = []
+    for name in _CANDIDATE_RUN_NAMES:
+        matches = client.search_runs(
+            experiment_ids=[deployed_run.info.experiment_id],
+            filter_string=f"tags.`mlflow.runName` = '{name}'",
+            order_by=["attributes.start_time DESC"],
+            max_results=1,
+        )
+        if matches:
+            run = matches[0]
+            candidates.append(
+                ModelComparisonCandidate(
+                    name=name,
+                    val_pr_auc=float(run.data.metrics.get("val_pr_auc", 0.0)),
+                    is_deployed=(name == deployed_name),
+                )
+            )
+
+    try:
+        comparison_artifact = _load_json_artifact(client, _loaded.run_id, "model_comparison.json")
+    except Exception as exc:
+        # Covers both MLflow's own artifact-not-found errors and the plain
+        # OSError/FileNotFoundError raised while opening the downloaded file
+        # -- either way it means this run predates ml/enrich_deployed_run.py
+        # writing model_comparison.json (or was never enriched).
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "model_comparison.json artifact not found for the deployed run "
+                f"({_loaded.run_id!r}). Re-run enrichment for this run before "
+                "calling /model/comparison: "
+                "python -c \"from ml.enrich_deployed_run import enrich_deployed_run; "
+                f"enrich_deployed_run({_loaded.run_id!r})\""
+            ),
+        ) from exc
+    calibration_curve = [
+        CalibrationPoint(mean_predicted=p, fraction_positive=t)
+        for p, t in zip(
+            comparison_artifact["calibration_curve"]["prob_pred"],
+            comparison_artifact["calibration_curve"]["prob_true"],
+        )
+    ]
+    shap_importances = [
+        ShapImportance(feature=k, mean_abs_shap=v)
+        for k, v in comparison_artifact["shap_importances"].items()
+    ]
+
+    return ModelComparisonResponse(
+        candidates=candidates,
+        calibration_curve=calibration_curve,
+        shap_importances=shap_importances,
     )
 
 

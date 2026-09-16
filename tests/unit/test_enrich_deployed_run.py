@@ -81,6 +81,9 @@ def test_enrich_deployed_run_logs_metric_and_artifact(tmp_path):
         mlflow.sklearn.log_model(
             model, name="calibrated_deployed_model", serialization_format="cloudpickle"
         )
+        mlflow.sklearn.log_model(
+            model, name="raw_deployed_model", serialization_format="cloudpickle"
+        )
 
     # Call enrich_deployed_run
     result = enrich_deployed_run(
@@ -104,3 +107,15 @@ def test_enrich_deployed_run_logs_metric_and_artifact(tmp_path):
     # Verify artifact was logged
     artifacts = [a.path for a in client.list_artifacts(run_id)]
     assert "shap_background.csv" in artifacts
+    assert "model_comparison.json" in artifacts
+    assert result["model_comparison_path"] is not None
+
+    import json
+
+    with open(result["model_comparison_path"]) as f:
+        comparison = json.load(f)
+    assert "calibration_curve" in comparison
+    assert "prob_true" in comparison["calibration_curve"]
+    assert "prob_pred" in comparison["calibration_curve"]
+    assert "shap_importances" in comparison
+    assert len(comparison["shap_importances"]) > 0

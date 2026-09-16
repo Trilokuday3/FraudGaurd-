@@ -113,10 +113,36 @@ def app_client(tmp_path, monkeypatch):
         mlflow.log_metric("deployed_val_pr_auc", 0.55)
         mlflow.log_metric("test_pr_auc", 0.60)
         mlflow.log_param("deployed_model", "baseline")
+        comparison_path = tmp_path / "model_comparison.json"
+        comparison_path.write_text(
+            json.dumps(
+                {
+                    "calibration_curve": {"prob_true": [0.1, 0.2], "prob_pred": [0.12, 0.22]},
+                    "shap_importances": {"amount": 0.3, "hour_of_day": 0.1},
+                }
+            )
+        )
+        mlflow.log_artifact(str(comparison_path))
+
+    for candidate_name, val_pr_auc in [
+        ("baseline", 0.50),
+        ("random_forest", 0.55),
+        ("xgboost", 0.60),
+        ("lightgbm", 0.58),
+    ]:
+        with mlflow.start_run(run_name=candidate_name):
+            mlflow.log_metric("val_pr_auc", val_pr_auc)
 
     thresholds_path = tmp_path / "thresholds.json"
     thresholds_path.write_text(
-        json.dumps({"t_review": 0.3, "t_block": 0.7, "model_run_id": run_id})
+        json.dumps(
+            {
+                "t_review": 0.3,
+                "t_block": 0.7,
+                "model_run_id": run_id,
+                "cost_curve": [{"t_review": 0.1, "cost": 500.0}, {"t_review": 0.3, "cost": 200.0}],
+            }
+        )
     )
 
     db_path = tmp_path / "decisions.db"
@@ -250,3 +276,103 @@ def test_score_persists_exactly_one_decision_row(app_client):
 
     assert after == before + 1
     assert matching == 1
+
+
+def test_list_decisions_returns_most_recent_first(app_client):
+    for i in range(3):
+        app_client.post("/score", json=_valid_feature_row(transaction_id=f"TXN-LIST-{i}"))
+
+    response = app_client.get("/decisions?limit=2")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 2
+    assert body["items"][0]["created_at"] >= body["items"][1]["created_at"]
+
+
+def test_list_decisions_filters_by_decision_type(app_client):
+    app_client.post(
+        "/score",
+        json=_valid_feature_row(
+            transaction_id="TXN-FILTER-BLOCK",
+            is_new_device=True,
+            is_new_country_for_customer=True,
+            ip_country_mismatch=True,
+        ),
+    )
+    response = app_client.get("/decisions?decision=block")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) >= 1
+    assert all(item["decision"] == "block" for item in body["items"])
+
+
+def test_list_decisions_paginates_with_before_id_cursor(app_client):
+    for i in range(5):
+        app_client.post("/score", json=_valid_feature_row(transaction_id=f"TXN-CURSOR-{i}"))
+
+    first_page = app_client.get("/decisions?limit=2").json()
+    assert first_page["next_cursor"] is not None
+
+    second_page = app_client.get(f"/decisions?limit=2&before_id={first_page['next_cursor']}").json()
+    first_ids = {item["id"] for item in first_page["items"]}
+    second_ids = {item["id"] for item in second_page["items"]}
+    assert first_ids.isdisjoint(second_ids)
+
+
+def test_decisions_stats_reports_totals_and_buckets(app_client):
+    app_client.post("/score", json=_valid_feature_row(transaction_id="TXN-STATS-1"))
+    app_client.post("/score", json=_valid_feature_row(transaction_id="TXN-STATS-2"))
+
+    response = app_client.get("/decisions/stats")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 2
+    assert body["approve_count"] + body["review_count"] + body["block_count"] == body["total"]
+    assert isinstance(body["buckets"], list)
+
+
+def test_decisions_stats_since_minutes_excludes_nothing_within_window(app_client):
+    app_client.post("/score", json=_valid_feature_row(transaction_id="TXN-STATS-WINDOW"))
+    response = app_client.get("/decisions/stats?since_minutes=60")
+    assert response.status_code == 200
+    assert response.json()["total"] >= 1
+
+
+def test_model_metadata_includes_cost_curve(app_client):
+    response = app_client.get("/model/metadata")
+    assert response.status_code == 200
+    body = response.json()
+    assert "cost_curve" in body
+    assert isinstance(body["cost_curve"], list)
+
+
+def test_model_comparison_returns_candidates_and_curves(app_client):
+    response = app_client.get("/model/comparison")
+    assert response.status_code == 200
+    body = response.json()
+    names = {c["name"] for c in body["candidates"]}
+    assert {"baseline", "random_forest", "xgboost", "lightgbm"}.issubset(names)
+    deployed = [c for c in body["candidates"] if c["is_deployed"]]
+    assert len(deployed) == 1
+    assert deployed[0]["name"] == "baseline"
+    assert len(body["calibration_curve"]) == 2
+    assert len(body["shap_importances"]) == 2
+
+
+def test_model_comparison_returns_503_when_artifact_missing(app_client, monkeypatch):
+    # Simulates a deployed run that predates ml/enrich_deployed_run.py
+    # writing model_comparison.json (finding 3): download_artifacts (or the
+    # subsequent file open) fails, and the endpoint should surface a clear
+    # 503 rather than an uninformative bare 500.
+    import serving.app as app_module
+
+    def _raise_not_found(*args, **kwargs):
+        raise FileNotFoundError("model_comparison.json not found for this run")
+
+    monkeypatch.setattr(app_module, "_load_json_artifact", _raise_not_found)
+
+    response = app_client.get("/model/comparison")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "model_comparison.json" in detail
+    assert "enrich_deployed_run" in detail

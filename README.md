@@ -25,6 +25,16 @@ Full design: `docs/superpowers/specs/2026-09-12-fraudguard-platform-roadmap.md`.
 `docs/superpowers/specs/2026-09-15-decision-engine-api-design.md` and
 `docs/decision-engine-acceptance.md`.
 
+**Sub-project 6 (Frontend) — done.** See
+`docs/superpowers/specs/2026-09-15-frontend-design.md` and
+`docs/frontend-acceptance.md`. A Next.js web app (`frontend/`) covering
+Dashboard, Live Transactions, Investigations, Model Center, Threshold
+Simulator, and Monitoring against the real decision engine API.
+(Sub-project 5, Streaming, is local-only and deferred per the roadmap;
+`scripts/replay_transactions.py` stands in for it locally so the
+frontend's Live Transactions/Monitoring pages have a growing feed to
+poll.)
+
 ## Quickstart
 
 ```
@@ -36,8 +46,12 @@ pytest tests/dq -v                # schema + referential-integrity gate on ./dat
 make features                     # writes ./data/features.parquet
 pytest tests/features -v          # leakage + schema gate on the feature table
 make train                        # trains baseline through champion candidates, selects the overall best performer, plus Isolation Forest
+python -c "from ml.enrich_deployed_run import enrich_deployed_run; enrich_deployed_run('<run_id>')"  # persists shap_background + model_comparison.json onto the deployed run (required for /explain and /model/comparison)
 cp .env.example .env               # then fill in MLFLOW_RUN_ID (see docs/decision-engine-acceptance.md)
 make api                          # serves the decision engine (score/explain/investigate)
+cd frontend && cp .env.example .env.local && npm install && npm run dev
+# in another terminal, for a live-updating feed:
+make replay
 ```
 
 ## Layout
@@ -49,6 +63,8 @@ features/                leakage-safe feature engineering -> data/features.parqu
 ml/                      modeling: data prep, training, calibration, SHAP, Isolation Forest, CLI
 decision/                cost-sensitive threshold selection + rules engine -> decision/thresholds.json
 serving/                 FastAPI decision engine service (score/explain/investigate)
+frontend/                Next.js web app: Dashboard, Live Transactions, Investigations, Model Center, Threshold Simulator, Monitoring -> consumes the serving/ API
+scripts/                 local-dev helpers, e.g. replay_transactions.py (stands in for sub-project 5's streaming pipeline by replaying data/features.parquet into /score)
 tests/unit/              generator + feature + modeling unit tests
 tests/features/          leakage + schema gate on the feature table
 tests/dq/                pandera data-quality gate against ./data
