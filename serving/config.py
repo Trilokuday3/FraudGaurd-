@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     mlflow_run_id: str = ""
     decision_db_url: str = "sqlite:///./decisions.db"
     thresholds_path: str = "./decision/thresholds.json"
+    deployed_frontend_origin: str = ""
+    enable_replay_worker: bool = False
+    replay_interval_seconds: float = 7.0
 
 
 settings = Settings()

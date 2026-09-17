@@ -1,0 +1,10 @@
+artifact_location: file:C:/Users/trilo/Downloads/FraudGuard/.claude/worktrees/feat-sub8-deployment/deploy/model_store/687229616523513382/models/m-e4a1be61bfc247c1b4f80db1f077eb8e/artifacts
+creation_timestamp: 1789498637097
+experiment_id: '687229616523513382'
+last_updated_timestamp: 1789498643921
+model_id: m-e4a1be61bfc247c1b4f80db1f077eb8e
+model_type: null
+name: raw_deployed_model
+source_run_id: 17d00e31654c4b9e8a9aa389f797d650
+status: 2
+status_message: null

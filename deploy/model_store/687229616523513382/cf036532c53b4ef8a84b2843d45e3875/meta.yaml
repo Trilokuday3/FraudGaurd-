@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/trilo/Downloads/FraudGuard/.claude/worktrees/feat-sub8-deployment/deploy/model_store/687229616523513382/cf036532c53b4ef8a84b2843d45e3875/artifacts
+end_time: 1789498621797
+entry_point_name: ''
+experiment_id: '687229616523513382'
+lifecycle_stage: active
+run_id: cf036532c53b4ef8a84b2843d45e3875
+run_name: lightgbm
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789498617444
+status: 3
+tags: []
+user_id: ''

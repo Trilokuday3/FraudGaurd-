@@ -35,6 +35,32 @@ Simulator, and Monitoring against the real decision engine API.
 frontend's Live Transactions/Monitoring pages have a growing feed to
 poll.)
 
+**Sub-project 8 (Deployment + Portfolio Integration) — code/config/CI
+complete, not yet live.** See
+`docs/superpowers/specs/2026-09-16-deployment-portfolio-design.md`,
+`docs/deployment-acceptance.md`, and `infra/deploy.md`. The repo is fully
+ready to deploy at $0/month (Vercel + Render free Web Service + Neon free
+Postgres) — an in-process replay worker keeps the deployed app's data
+genuinely live without a paid background-worker service, and a vendored,
+pruned MLflow snapshot (`deploy/model_store/`) means the deployed API
+never depends on a running MLflow server. What's left is the human
+account-holder's own manual pass through `infra/deploy.md` — creating the
+actual Render/Vercel/Neon accounts isn't something this automation does on
+your behalf. **Live demo:** _(not yet deployed — see `infra/deploy.md`)_.
+
+### Deployment
+
+- **Frontend:** Vercel (free tier).
+- **API + replay worker:** Render free **Web Service** — sleeps after ~15
+  min idle, cold-starts in 30-60s on the next request. This is the
+  accepted cost of staying at $0/month, not a bug; a ~$7/month instance
+  would remove it if ever wanted later.
+- **Database:** Neon free-tier Postgres — auto-wakes on the next query with
+  no manual intervention (chosen over Supabase specifically because
+  Supabase's free tier fully pauses a project after ~1 week of no
+  traffic).
+- Full step-by-step instructions: `infra/deploy.md`.
+
 ## Quickstart
 
 ```
@@ -54,6 +80,13 @@ cd frontend && cp .env.example .env.local && npm install && npm run dev
 make replay
 ```
 
+`.env`'s deployment-only settings (all optional locally, defaulted off):
+`DEPLOYED_FRONTEND_ORIGIN` (extra CORS origin allowed alongside localhost —
+leave blank locally), `ENABLE_REPLAY_WORKER` (in-process background replay
+loop, off by default so local dev doesn't get spammed with fake decisions
+unless you opt in), `REPLAY_INTERVAL_SECONDS` (seconds between replayed
+transactions when the worker is on, default `7.0`).
+
 ## Layout
 
 ```
@@ -64,7 +97,9 @@ ml/                      modeling: data prep, training, calibration, SHAP, Isola
 decision/                cost-sensitive threshold selection + rules engine -> decision/thresholds.json
 serving/                 FastAPI decision engine service (score/explain/investigate)
 frontend/                Next.js web app: Dashboard, Live Transactions, Investigations, Model Center, Threshold Simulator, Monitoring -> consumes the serving/ API
-scripts/                 local-dev helpers, e.g. replay_transactions.py (stands in for sub-project 5's streaming pipeline by replaying data/features.parquet into /score)
+scripts/                 local-dev + deploy helpers: replay_transactions.py (sub-project 5 streaming stand-in), vendor_model_store.py and generate_sample_transactions.py (deployment prep, sub-project 8)
+deploy/                  committed deployment artifacts: model_store/ (vendored MLflow snapshot), requirements.txt (lean prod deps), sample_transactions.json (bundled replay data)
+infra/                   deploy.md: the real step-by-step deployment runbook
 tests/unit/              generator + feature + modeling unit tests
 tests/features/          leakage + schema gate on the feature table
 tests/dq/                pandera data-quality gate against ./data
@@ -72,5 +107,5 @@ tests/integration/       end-to-end tests against the FastAPI serving app
 docs/                    specs, data dictionary, generation-model writeup
 ```
 
-See the roadmap doc for what's next: EDA + feature engineering, modeling,
-decision engine + API, streaming, frontend, MLOps, deployment.
+See the roadmap doc for what's next: MLOps & Monitoring (sub-project 7,
+not yet built), and going fully live per `infra/deploy.md`.

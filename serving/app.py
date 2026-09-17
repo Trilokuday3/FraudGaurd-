@@ -1,10 +1,13 @@
 """FastAPI app: score, batch score, explain, investigation lookup, model
 metadata, health."""
 
+import asyncio
 import json
 import tempfile
 import warnings
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -17,6 +20,7 @@ from ml.explain import explain_prediction
 from serving.config import settings
 from serving.ml_loader import load_deployed_model
 from serving.models import Decision, make_session_factory
+from serving.replay_worker import replay_worker_loop
 from serving.schemas import (
     CalibrationPoint,
     CostCurvePoint,
@@ -34,18 +38,71 @@ from serving.schemas import (
     ShapImportance,
 )
 
-app = FastAPI(title="FraudGuard Decision Engine API")
+_SAMPLE_TRANSACTIONS_PATH = Path(__file__).resolve().parent.parent / "deploy" / "sample_transactions.json"
 
-# Local-dev-scoped CORS default: the frontend (`frontend/`) runs client-rendered
+
+def _load_sample_transactions() -> list[FeatureRow]:
+    # `_compute_score` (below) expects a `FeatureRow` instance -- it calls
+    # `.model_dump()` on what it's given, exactly like FastAPI's request
+    # parsing already hands it for `/score`. The bundled JSON file holds
+    # plain dicts, so each row is parsed into `FeatureRow` here rather than
+    # handed to the replay loop raw -- confirmed necessary by directly
+    # invoking replay_worker_loop against a plain dict, which raised
+    # `AttributeError: 'dict' object has no attribute 'model_dump'`; inside
+    # a fire-and-forget `asyncio.create_task`, that exception would have
+    # been silently swallowed instead of surfacing.
+    with open(_SAMPLE_TRANSACTIONS_PATH) as f:
+        raw_rows = json.load(f)
+    return [FeatureRow(**row) for row in raw_rows]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # `_compute_score` and `SessionLocal` are defined further down in this
+    # module (after `app` is constructed), but this closure only resolves
+    # those names when it actually runs -- at process startup, well after
+    # the whole module has finished importing -- so the textual order here
+    # doesn't matter, only that both exist by then.
+    task = None
+    if settings.enable_replay_worker:
+        rows = _load_sample_transactions()
+        task = asyncio.create_task(
+            replay_worker_loop(
+                compute_score=_compute_score,
+                session_factory=SessionLocal,
+                rows=rows,
+                interval_seconds=settings.replay_interval_seconds,
+            )
+        )
+    yield
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="FraudGuard Decision Engine API", lifespan=lifespan)
+
+
+# Local-dev-scoped default: the frontend (`frontend/`) runs client-rendered
 # pages (Live Transactions, Monitoring, Investigations) that fetch this API
-# directly from the browser, and Next's dev server doesn't always land on the
-# same port (3000, 3002, ... depending on what's free). A regex matching any
-# localhost port keeps that working without hardcoding one. A stricter,
-# settings-driven allowed-origins list belongs to the deployment sub-project
-# (out of scope here).
+# directly from the browser, and Next's dev server doesn't always land on
+# the same port (3000, 3002, ... depending on what's free). A regex
+# matching any localhost port keeps that working without hardcoding one.
+# In production, `settings.deployed_frontend_origin` adds the real deployed
+# Vercel URL -- set once as an env var after that URL is known (Render
+# restarts the process on an env var change, so this takes effect on next
+# boot, not via any runtime mutation).
+def _build_allow_origins(deployed_frontend_origin: str) -> list[str]:
+    return [deployed_frontend_origin] if deployed_frontend_origin else []
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"http://localhost:\d+",
+    allow_origins=_build_allow_origins(settings.deployed_frontend_origin),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
