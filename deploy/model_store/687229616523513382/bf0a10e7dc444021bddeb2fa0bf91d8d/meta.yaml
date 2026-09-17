@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/trilo/Downloads/FraudGuard/.claude/worktrees/feat-sub8-deployment/deploy/model_store/687229616523513382/bf0a10e7dc444021bddeb2fa0bf91d8d/artifacts
+end_time: 1789498612480
+entry_point_name: ''
+experiment_id: '687229616523513382'
+lifecycle_stage: active
+run_id: bf0a10e7dc444021bddeb2fa0bf91d8d
+run_name: random_forest
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789498572134
+status: 3
+tags: []
+user_id: ''

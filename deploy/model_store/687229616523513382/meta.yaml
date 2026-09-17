@@ -1,0 +1,9 @@
+artifact_location: file:C:/Users/trilo/Downloads/FraudGuard/.claude/worktrees/feat-sub6-frontend/mlruns/687229616523513382
+creation_time: 1789498538172
+effective_trace_archival_retention: null
+experiment_id: '687229616523513382'
+last_update_time: 1789498538172
+lifecycle_stage: active
+name: fraudguard-modeling
+trace_location: null
+workspace: default

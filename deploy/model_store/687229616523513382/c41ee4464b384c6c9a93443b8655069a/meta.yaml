@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/trilo/Downloads/FraudGuard/.claude/worktrees/feat-sub8-deployment/deploy/model_store/687229616523513382/c41ee4464b384c6c9a93443b8655069a/artifacts
+end_time: 1789498617424
+entry_point_name: ''
+experiment_id: '687229616523513382'
+lifecycle_stage: active
+run_id: c41ee4464b384c6c9a93443b8655069a
+run_name: xgboost
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1789498612499
+status: 3
+tags: []
+user_id: ''
