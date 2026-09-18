@@ -15,6 +15,7 @@ generation_meta.json
 mlruns/
 decisions.db
 ml/artifacts/
+mlops/reports/
 node_modules/
 .next/
 frontend/next-env.d.ts
