@@ -48,18 +48,20 @@ account-holder's own manual pass through `infra/deploy.md` — creating the
 actual Render/Vercel/Neon accounts isn't something this automation does on
 your behalf. **Live demo:** _(not yet deployed — see `infra/deploy.md`)_.
 
-**Sub-project 7 (MLOps & Monitoring) — code complete, spec/runbook docs
-pending.** `mlops/`: `promote_model.py` (MLflow Model Registry promotion,
-gated on beating the current champion's validation PR-AUC),
-`rollback_model.py` (reverts the registry's champion alias), `check_scored_dq.py`
-(validates recently-scored transactions against the same schema
-`tests/dq/` validates training data with), `drift_report.py` (Evidently
-data-drift report comparing scored traffic to the training reference).
-A local-only `Dockerfile` + `docker-compose.yml` (portfolio/reproducibility
-artifact — not the deploy path; see Sub-project 8 below) and
-`.github/workflows/mlops-monitor.yml` (scheduled DQ + drift check against
-a real deployed database, gated on a `DEPLOYED_DECISION_DB_URL` secret
-until one exists).
+**Sub-project 7 (MLOps & Monitoring) — done.** See
+`docs/superpowers/specs/2026-09-18-mlops-monitoring-design.md`,
+`docs/superpowers/plans/2026-09-18-mlops-monitoring.md`, and
+`infra/rollback-runbook.md`. `mlops/`: `promote_model.py` (MLflow Model
+Registry promotion, gated on beating the current champion's validation
+PR-AUC), `rollback_model.py` (reverts the registry's champion alias),
+`check_scored_dq.py` (validates recently-scored transactions against the
+same schema `tests/dq/` validates training data with), `drift_report.py`
+(Evidently data-drift report comparing scored traffic to the training
+reference). A local-only `Dockerfile` + `docker-compose.yml`
+(portfolio/reproducibility artifact — not the deploy path; see Sub-project
+8 below) and `.github/workflows/mlops-monitor.yml` (scheduled DQ + drift
+check against a real deployed database, gated on a
+`DEPLOYED_DECISION_DB_URL` secret until one exists).
 
 ### Deployment
 
@@ -120,7 +122,7 @@ mlops/                   MLflow registry promotion/rollback, scored-traffic DQ c
 frontend/                Next.js web app: Dashboard, Live Transactions, Investigations, Model Center, Threshold Simulator, Monitoring -> consumes the serving/ API
 scripts/                 local-dev + deploy helpers: replay_transactions.py (sub-project 5 streaming stand-in), vendor_model_store.py and generate_sample_transactions.py (deployment prep, sub-project 8)
 deploy/                  committed deployment artifacts: model_store/ (vendored MLflow snapshot), requirements.txt (lean prod deps), sample_transactions.json (bundled replay data)
-infra/                   deploy.md: the real step-by-step deployment runbook
+infra/                   deploy.md (deployment runbook), rollback-runbook.md (sub-project 7 rollback guide)
 tests/unit/              generator + feature + modeling unit tests
 tests/features/          leakage + schema gate on the feature table
 tests/dq/                pandera data-quality gate against ./data
@@ -128,6 +130,6 @@ tests/integration/       end-to-end tests against the FastAPI serving app
 docs/                    specs, data dictionary, generation-model writeup
 ```
 
-See the roadmap doc for what's next: sub-project 7's spec/plan docs and
-rollback runbook (code is done, see Status above), and going fully live
-per `infra/deploy.md`.
+See the roadmap doc for what's next: going fully live per
+`infra/deploy.md` (sub-projects 1-4, 6, 7, and 8 are all done — see
+Status above; sub-project 5, Streaming, is explicitly deferred).
