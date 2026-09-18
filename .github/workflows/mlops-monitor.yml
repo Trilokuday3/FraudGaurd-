@@ -1,0 +1,58 @@
+name: Scheduled MLOps monitoring
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+
+      - name: Check for a deployed database connection string
+        id: gate
+        run: |
+          if [ -z "${{ secrets.DEPLOYED_DECISION_DB_URL }}" ]; then
+            echo "DEPLOYED_DECISION_DB_URL secret not set yet -- skipping until deploy is live."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # drift_report.py's reference distribution is a sample of
+      # data/features.parquet, which isn't checked in (generated,
+      # gitignored) -- rebuild it the same way tests/dq's own DQ gate does.
+      - name: Seed reference data
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          python -m generator seed
+          python -m features build
+
+      - name: Validate scored traffic (DQ)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          DECISION_DB_URL: ${{ secrets.DEPLOYED_DECISION_DB_URL }}
+        run: python -m mlops.check_scored_dq
+
+      - name: Generate drift report
+        # Runs even if the DQ step above failed -- a drift report is still
+        # useful context when DQ has just flagged a problem, and this step
+        # doesn't gate the job (see its own module docstring: a report, not
+        # a pass/fail check).
+        if: steps.gate.outputs.ready == 'true' && !cancelled()
+        env:
+          DECISION_DB_URL: ${{ secrets.DEPLOYED_DECISION_DB_URL }}
+        run: python -m mlops.drift_report --output drift_report.html
+
+      - uses: actions/upload-artifact@v4
+        if: steps.gate.outputs.ready == 'true' && !cancelled()
+        with:
+          name: drift-report
+          path: drift_report.html
+          retention-days: 30
