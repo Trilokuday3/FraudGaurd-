@@ -278,6 +278,24 @@ def test_score_persists_exactly_one_decision_row(app_client):
     assert matching == 1
 
 
+def test_score_persists_the_full_feature_row(app_client):
+    from serving.app import SessionLocal
+    from serving.models import Decision
+
+    sent = _valid_feature_row(transaction_id="TXN-FEATURE-ROW")
+    app_client.post("/score", json=sent)
+
+    session = SessionLocal()
+    try:
+        record = session.query(Decision).filter_by(transaction_id="TXN-FEATURE-ROW").one()
+    finally:
+        session.close()
+
+    assert record.feature_row["transaction_id"] == "TXN-FEATURE-ROW"
+    assert record.feature_row["amount"] == sent["amount"]
+    assert record.feature_row["payment_method"] == sent["payment_method"]
+
+
 def test_list_decisions_returns_most_recent_first(app_client):
     for i in range(3):
         app_client.post("/score", json=_valid_feature_row(transaction_id=f"TXN-LIST-{i}"))

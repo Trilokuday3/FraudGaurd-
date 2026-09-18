@@ -22,6 +22,7 @@ class Decision(Base):
     decision_source = Column(String, nullable=False)
     model_run_id = Column(String, nullable=False)
     shap_top_features = Column(JSON, nullable=False, default=dict)
+    feature_row = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC))
 
 
