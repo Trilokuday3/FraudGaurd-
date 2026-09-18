@@ -1,0 +1,32 @@
+# Local-only: builds the Dockerfile above and runs it against a real
+# Postgres container, for reproducibility/portfolio purposes. Not used by
+# sub-project 8's actual deploy (Render + Neon, see infra/deploy.md).
+#
+# `docker compose up --build`, then hit http://localhost:8000/health.
+# Reads MLFLOW_RUN_ID from the repo's existing .env (compose auto-loads it),
+# same run ID local dev already uses -- it has to match whatever run
+# deploy/model_store/ was last vendored from.
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_RUN_ID: ${MLFLOW_RUN_ID}
+      DECISION_DB_URL: postgresql+psycopg://postgres:postgres@db:5432/fraudguard
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fraudguard
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

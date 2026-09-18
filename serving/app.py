@@ -166,6 +166,7 @@ def _compute_score(row: FeatureRow) -> tuple[ScoreResponse, Decision]:
         decision_source=decision_source,
         model_run_id=_loaded.run_id,
         shap_top_features=top5,
+        feature_row=row.model_dump(mode="json"),
     )
     response = ScoreResponse(
         transaction_id=row.transaction_id,

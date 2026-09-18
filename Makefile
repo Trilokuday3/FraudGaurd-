@@ -1,4 +1,4 @@
-.PHONY: venv seed dq test lint features train api replay frontend
+.PHONY: venv seed dq test lint features train api replay frontend dq-scored drift promote rollback
 
 venv:
 	python -m venv .venv
@@ -32,3 +32,15 @@ lint:
 
 frontend:
 	cd frontend && npm run dev
+
+dq-scored:
+	python -m mlops.check_scored_dq
+
+drift:
+	python -m mlops.drift_report
+
+promote:
+	python -m mlops.promote_model --run-id $(RUN_ID)
+
+rollback:
+	python -m mlops.rollback_model

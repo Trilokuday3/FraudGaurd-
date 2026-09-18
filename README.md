@@ -48,6 +48,19 @@ account-holder's own manual pass through `infra/deploy.md` — creating the
 actual Render/Vercel/Neon accounts isn't something this automation does on
 your behalf. **Live demo:** _(not yet deployed — see `infra/deploy.md`)_.
 
+**Sub-project 7 (MLOps & Monitoring) — code complete, spec/runbook docs
+pending.** `mlops/`: `promote_model.py` (MLflow Model Registry promotion,
+gated on beating the current champion's validation PR-AUC),
+`rollback_model.py` (reverts the registry's champion alias), `check_scored_dq.py`
+(validates recently-scored transactions against the same schema
+`tests/dq/` validates training data with), `drift_report.py` (Evidently
+data-drift report comparing scored traffic to the training reference).
+A local-only `Dockerfile` + `docker-compose.yml` (portfolio/reproducibility
+artifact — not the deploy path; see Sub-project 8 below) and
+`.github/workflows/mlops-monitor.yml` (scheduled DQ + drift check against
+a real deployed database, gated on a `DEPLOYED_DECISION_DB_URL` secret
+until one exists).
+
 ### Deployment
 
 - **Frontend:** Vercel (free tier).
@@ -80,6 +93,13 @@ cd frontend && cp .env.example .env.local && npm install && npm run dev
 make replay
 ```
 
+Local-only Docker (reproducibility/portfolio artifact, not the deploy path):
+
+```
+docker compose up --build   # reads MLFLOW_RUN_ID from your existing .env
+# api on http://localhost:8000, backed by a real local Postgres container
+```
+
 `.env`'s deployment-only settings (all optional locally, defaulted off):
 `DEPLOYED_FRONTEND_ORIGIN` (extra CORS origin allowed alongside localhost —
 leave blank locally), `ENABLE_REPLAY_WORKER` (in-process background replay
@@ -96,6 +116,7 @@ features/                leakage-safe feature engineering -> data/features.parqu
 ml/                      modeling: data prep, training, calibration, SHAP, Isolation Forest, CLI
 decision/                cost-sensitive threshold selection + rules engine -> decision/thresholds.json
 serving/                 FastAPI decision engine service (score/explain/investigate)
+mlops/                   MLflow registry promotion/rollback, scored-traffic DQ checks, Evidently drift reports (sub-project 7)
 frontend/                Next.js web app: Dashboard, Live Transactions, Investigations, Model Center, Threshold Simulator, Monitoring -> consumes the serving/ API
 scripts/                 local-dev + deploy helpers: replay_transactions.py (sub-project 5 streaming stand-in), vendor_model_store.py and generate_sample_transactions.py (deployment prep, sub-project 8)
 deploy/                  committed deployment artifacts: model_store/ (vendored MLflow snapshot), requirements.txt (lean prod deps), sample_transactions.json (bundled replay data)
@@ -107,5 +128,6 @@ tests/integration/       end-to-end tests against the FastAPI serving app
 docs/                    specs, data dictionary, generation-model writeup
 ```
 
-See the roadmap doc for what's next: MLOps & Monitoring (sub-project 7,
-not yet built), and going fully live per `infra/deploy.md`.
+See the roadmap doc for what's next: sub-project 7's spec/plan docs and
+rollback runbook (code is done, see Status above), and going fully live
+per `infra/deploy.md`.
