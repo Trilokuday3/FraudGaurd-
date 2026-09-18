@@ -1,4 +1,6 @@
-from mlops.check_scored_dq import check_scored_dq
+import pytest
+
+from mlops.check_scored_dq import check_scored_dq, main
 from serving.models import Decision, make_session_factory
 
 
@@ -118,3 +120,31 @@ def test_check_scored_dq_ignores_rows_with_no_feature_row(tmp_path):
 
     assert result["checked_rows"] == 0
     assert result["passed"] is True
+
+
+def test_main_exits_nonzero_when_dq_fails(tmp_path, monkeypatch):
+    db_url = f"sqlite:///{tmp_path}/test.db"
+    _seed_decisions(db_url, [_valid_feature_row(amount=-50.0)])
+
+    import mlops.check_scored_dq as module
+
+    monkeypatch.setattr(module.settings, "decision_db_url", db_url)
+    monkeypatch.setattr("sys.argv", ["check_scored_dq"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+
+
+def test_main_exits_zero_when_dq_passes(tmp_path, monkeypatch, capsys):
+    db_url = f"sqlite:///{tmp_path}/test.db"
+    _seed_decisions(db_url, [_valid_feature_row()])
+
+    import mlops.check_scored_dq as module
+
+    monkeypatch.setattr(module.settings, "decision_db_url", db_url)
+    monkeypatch.setattr("sys.argv", ["check_scored_dq"])
+
+    main()  # should not raise
+
+    assert "PASSED" in capsys.readouterr().out

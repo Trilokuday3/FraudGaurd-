@@ -70,6 +70,11 @@ def main() -> None:
     for failure in result["failures"]:
         print(f"  - {failure['column']}: {failure['check']} (got {failure['failure_case']!r})")
 
+    if not result["passed"]:
+        # Non-zero exit so this fails the CI job that runs it -- printing
+        # "FAILED" alone wouldn't fail the workflow step.
+        raise SystemExit(1)
+
 
 if __name__ == "__main__":
     main()
