@@ -1,7 +1,9 @@
-# Local-only inference image for the FraudGuard API -- a reproducibility /
-# portfolio artifact demonstrating containerization, NOT the deploy path.
-# Sub-project 8 deliberately deploys via Render's native Python runtime
-# (see infra/deploy.md); this image is for `docker compose up` on a laptop.
+# Inference image for the FraudGuard API. Originally built for local
+# `docker compose up` only, but Render auto-detects this Dockerfile and
+# builds with it regardless of what infra/deploy.md's Render section says
+# -- Render's environment type is fixed at service creation and can't be
+# switched to native Python after the fact, so this image is also the real
+# Render deploy path now. Keep both use cases working.
 #
 # Reuses deploy/requirements.txt (sub-project 8's lean, deploy-only
 # dependency set -- no jupyter/black/ruff/pytest) and deploy/model_store/
@@ -20,6 +22,7 @@ COPY decision/ decision/
 COPY ml/ ml/
 COPY mlops/ mlops/
 COPY deploy/model_store/ deploy/model_store/
+COPY deploy/sample_transactions.json deploy/sample_transactions.json
 
 ENV MLFLOW_TRACKING_URI=./deploy/model_store
 ENV THRESHOLDS_PATH=./decision/thresholds.json
