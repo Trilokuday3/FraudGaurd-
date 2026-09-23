@@ -1,33 +1,54 @@
-import { fetchDecisionsStats, fetchModelMetadata } from "@/lib/api";
-import { StatTile } from "@/components/StatTile";
-import { DecisionBadge } from "@/components/DecisionBadge";
+import { fetchDecisions, fetchDecisionsStats, fetchModelMetadata } from "@/lib/api";
+import { PageHeader } from "@/components/PageHeader";
+import { KpiCard } from "@/components/KpiCard";
+import { DashboardBoard } from "@/components/DashboardBoard";
 
 export default async function DashboardPage() {
-  const [stats, metadata] = await Promise.all([fetchDecisionsStats(), fetchModelMetadata()]);
+  const [stats, stats24h, metadata, decisions] = await Promise.all([
+    fetchDecisionsStats(),
+    fetchDecisionsStats(1440),
+    fetchModelMetadata(),
+    fetchDecisions({ limit: 100 }),
+  ]);
 
   return (
     <main className="p-6 space-y-6">
-      <h1 className="text-xl font-semibold">Dashboard</h1>
+      <PageHeader
+        title="Fraud detection dashboard"
+        subtitle="Real-time transaction monitoring and risk analysis"
+      />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatTile label="Total scored" value={stats.total} />
-        <StatTile label="Avg score" value={stats.avg_score.toFixed(3)} />
-        <StatTile label="Deployed model" value={metadata.deployed_model_name} />
-        <StatTile label="Val PR-AUC" value={metadata.val_pr_auc.toFixed(3)} />
+        <KpiCard
+          label="Flagged transactions"
+          value={stats.block_count}
+          secondary={`${stats24h.block_count} in the last 24h`}
+          tone="danger"
+        />
+        <KpiCard
+          label="Under review"
+          value={stats.review_count}
+          secondary={`${stats24h.review_count} in the last 24h`}
+          tone="warning"
+        />
+        <KpiCard
+          label="Approved"
+          value={stats.approve_count}
+          secondary={`${stats24h.approve_count} in the last 24h`}
+          tone="success"
+        />
+        <KpiCard
+          label="Avg risk score"
+          value={`${Math.round(stats.avg_score * 100)}%`}
+          secondary={`${metadata.deployed_model_name} · val PR-AUC ${metadata.val_pr_auc.toFixed(3)}`}
+        />
       </div>
-      <div className="flex gap-6 items-center flex-wrap">
-        <div className="flex items-center gap-2">
-          <DecisionBadge decision="approve" />
-          <span className="font-mono">{stats.approve_count}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <DecisionBadge decision="review" />
-          <span className="font-mono">{stats.review_count}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <DecisionBadge decision="block" />
-          <span className="font-mono">{stats.block_count}</span>
-        </div>
-      </div>
+
+      <DashboardBoard
+        rows={decisions.items}
+        tReview={metadata.t_review}
+        tBlock={metadata.t_block}
+      />
     </main>
   );
 }

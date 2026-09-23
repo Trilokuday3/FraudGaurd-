@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+* {
+  scrollbar-color: theme("colors.neutral.400") transparent;
+}
+
+.dark * {
+  scrollbar-color: theme("colors.neutral.700") transparent;
+}

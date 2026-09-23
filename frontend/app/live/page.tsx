@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchDecisions } from "@/lib/api";
 import { DataTable } from "@/components/DataTable";
+import { PageHeader } from "@/components/PageHeader";
 import { DecisionRow } from "@/lib/types";
 
 export default function LiveTransactionsPage() {
@@ -31,12 +32,13 @@ export default function LiveTransactionsPage() {
 
   return (
     <main className="p-6 space-y-4">
-      <h1 className="text-xl font-semibold">Live Transactions</h1>
-      <p className="text-sm text-neutral-400">
-        Updates every few seconds. Run <code>make replay</code> alongside{" "}
-        <code>make api</code> to see a continuously growing feed.
-      </p>
-      <DataTable rows={rows} />
+      <PageHeader
+        title="Live transactions"
+        subtitle="Updates every few seconds while the replay script is running."
+      />
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+        <DataTable rows={rows} />
+      </div>
     </main>
   );
 }
