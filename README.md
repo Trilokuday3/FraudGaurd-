@@ -37,13 +37,23 @@ Simulator, and Monitoring against the real decision engine API.
 frontend's Live Transactions/Monitoring pages have a growing feed to
 poll.)
 
+**Live streaming pipeline (Kafka + Spark) — built, pending setup and
+verification.** `streaming/` holds a producer, a Spark Structured Streaming
+consumer and a cursor store, run on a 10-minute GitHub Actions schedule
+against a Kafka broker on a VM (`streaming/docker-compose.kafka.yml`,
+`infra/kafka-vm-setup.md`, `.github/workflows/live-streaming.yml`). The VM,
+broker and secrets are not yet created and the pipeline has not been run
+end-to-end, so the deployed app is not yet fed by it. See
+`docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md`.
+
 **Sub-project 8 (Deployment + Portfolio Integration) — code/config/CI
 complete, not yet live.** See
 `docs/superpowers/specs/2026-09-16-deployment-portfolio-design.md`,
 `docs/deployment-acceptance.md`, and `infra/deploy.md`. The repo is fully
 ready to deploy at $0/month (Vercel + Render free Web Service + Neon free
 Postgres) — an in-process replay worker keeps the deployed app's data
-genuinely live without a paid background-worker service, and a vendored,
+live without a paid background-worker service (the current data path; the
+Kafka + Spark pipeline above is intended to replace it once verified), and a vendored,
 pruned MLflow snapshot (`deploy/model_store/`) means the deployed API
 never depends on a running MLflow server. What's left is the human
 account-holder's own manual pass through `infra/deploy.md` — creating the
@@ -66,7 +76,8 @@ until one exists).
 ### Deployment
 
 - **Frontend:** Vercel (free tier).
-- **API + replay worker:** Render free **Web Service** — sleeps after ~15
+- **API + replay worker (current in-process fallback until the streaming
+  cutover):** Render free **Web Service** — sleeps after ~15
   min idle, cold-starts in 30-60s on the next request. This is the
   accepted cost of staying at $0/month, not a bug; a ~$7/month instance
   would remove it if ever wanted later.
@@ -122,7 +133,8 @@ mlops/                   MLflow registry promotion/rollback, scored-traffic DQ c
 frontend/                Next.js web app: Dashboard, Live Transactions, Investigations, Model Center, Threshold Simulator, Monitoring -> consumes the serving/ API
 scripts/                 local-dev + deploy helpers: replay_transactions.py (sub-project 5 streaming stand-in), vendor_model_store.py and generate_sample_transactions.py (deployment prep, sub-project 8)
 deploy/                  committed deployment artifacts: model_store/ (vendored MLflow snapshot), requirements.txt (lean prod deps), sample_transactions.json (bundled replay data)
-infra/                   deploy.md: the real step-by-step deployment runbook
+streaming/               live Kafka + Spark pipeline: producer, Spark consumer, cursor store, docker-compose.kafka.yml (built, pending setup; see docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md)
+infra/                   deploy.md: the real step-by-step deployment runbook; kafka-vm-setup.md: one-time Kafka VM setup
 tests/unit/              generator + feature + modeling unit tests
 tests/features/          leakage + schema gate on the feature table
 tests/dq/                pandera data-quality gate against ./data

@@ -26,6 +26,18 @@ class Decision(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(UTC))
 
 
+class StreamCursor(Base):
+    """Single-row table tracking how far the Kafka producer has replayed
+    deploy/sample_transactions.json. Lives in the same Postgres as
+    Decision so it's created by the same make_session_factory() call
+    that already runs at every process boot -- no separate migration."""
+
+    __tablename__ = "stream_cursor"
+
+    id = Column(Integer, primary_key=True)
+    position = Column(Integer, nullable=False, default=0)
+
+
 def make_session_factory(db_url: str) -> sessionmaker:
     """Create an SQLAlchemy engine and session factory for the given database URL.
 

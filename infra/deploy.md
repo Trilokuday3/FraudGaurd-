@@ -71,8 +71,13 @@ including an ephemeral Docker Postgres container where available). Before
 trusting the deploy, run, from the repo root, with your real Neon URL:
 
 ```
-DECISION_DB_URL=<your Neon connection string, with +psycopg> pytest tests/unit tests/integration -v
+FRAUDGUARD_TESTS_ALLOW_REMOTE_DB=1 DECISION_DB_URL=<your Neon connection string, with +psycopg> pytest tests/unit tests/integration -v
 ```
+
+`FRAUDGUARD_TESTS_ALLOW_REMOTE_DB=1` is required: without it,
+`tests/conftest.py` swaps any non-SQLite `DECISION_DB_URL` for a temporary
+SQLite file. **Warning:** this run writes test rows into that database, so
+point it at a throwaway Neon branch, never the live dashboard database.
 
 Expect the same pass count as local SQLite runs. If anything fails here
 that didn't fail locally, it's a real Postgres-specific issue to fix
@@ -140,3 +145,73 @@ Both Render and Vercel keep every prior deploy browsable in their
 dashboards with a one-click "redeploy this version" / "promote to
 production" action. No custom rollback tooling is introduced for a project
 at this scale — use the platform's own history.
+
+## Live streaming pipeline (Kafka + Spark)
+
+**Status: built, pending setup and verification.** The code, compose file,
+runbook and workflow exist (see
+`docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md`
+and `docs/superpowers/plans/2026-09-23-live-kafka-spark-streaming.md`), but
+the VM, Kafka broker and GitHub secrets have not been created and the
+pipeline has not been run end-to-end. Until it is verified, the deployed
+app's live data still comes from the in-process replay worker
+(`ENABLE_REPLAY_WORKER=true` on Render, as configured above). One-time
+VM/Kafka setup is in `infra/kafka-vm-setup.md`.
+
+**GitHub Actions secrets required** (`.github/workflows/live-streaming.yml`):
+
+| Secret | Value |
+|---|---|
+| `DEPLOYED_DECISION_DB_URL` | the same Neon string already used by `mlops-monitor.yml`, `postgresql+psycopg://` scheme |
+| `KAFKA_BOOTSTRAP_SERVERS` | `<VM host>:9092` |
+| `KAFKA_SASL_USERNAME` | chosen in `infra/kafka-vm-setup.md` step 3 |
+| `KAFKA_SASL_PASSWORD` | chosen in `infra/kafka-vm-setup.md` step 3 |
+| `VM_HOST` | the VM's public IP/hostname |
+| `VM_SSH_PRIVATE_KEY` | the deploy key generated in `infra/kafka-vm-setup.md` step 7 |
+
+The workflow is a visible no-op (it logs a "skipping" note) until **all
+six** secrets are set.
+
+**Acceptance checklist and cutover.** The pipeline is built but not yet
+verified or live; these steps are how it gets verified. Judge acceptance
+from the workflow run logs, not from the dashboard: every run publishes a
+new batch (the producer always sends `PRODUCER_BATCH_SIZE` rows, default
+30), and until cutover the replay worker keeps adding rows to the same
+table. Do these in order; the replay worker stays on until the pipeline is
+proven.
+
+1. Run the workflow manually (Actions tab, "Live streaming pipeline", Run
+   workflow). In its logs, the "Run producer" step must print
+   `Published N rows, cursor A -> B`, and the "Run Spark consumer" step
+   must print `batch <id>: scored N, skipped 0` (on the very first run
+   there may be one such line per batch Spark splits the backlog into;
+   the scored counts must add up to what was published).
+2. Run it a second time. The Spark step must score exactly one new
+   batch's worth -- the N rows that run's producer step published -- and
+   nothing from the first run. Re-scoring the first run's rows would mean
+   the checkpoint didn't round-trip through the VM.
+3. Optionally, confirm `GET /decisions/stats` `total` on the Render API
+   grew by at least N per run. It grows by more than N while the replay
+   worker is still on, so this is a sanity check, not the acceptance test.
+4. Only then, **turn off the old replay worker**: set
+   `ENABLE_REPLAY_WORKER=false` on Render (Environment tab). Running both
+   long-term double-writes to the same `decisions` table.
+5. Confirm the dashboard pages (Dashboard, Live Transactions, Monitoring)
+   still render, and that `total` keeps growing only as pipeline runs
+   complete (by N per run).
+
+**Actions minutes / repo visibility (open decision for the repo owner).**
+If this repo is private, GitHub Actions includes 2,000 free minutes a
+month, and every scheduled run is billed at least one minute even when it
+only logs "skipping". At `*/10`, this workflow alone is about 4,320 runs a
+month, and `keep-alive.yml` runs on the same `*/10` schedule, so together
+they exceed the free allowance before counting the minutes the real
+producer + Spark runs take. Options: make the repo public (standard
+GitHub-hosted runners are free for public repos), or lower the cron
+frequency of one or both workflows (e.g. hourly). Neither has been chosen
+yet; the cron schedules are unchanged pending that decision.
+
+**Known limitations:** the broker uses `SASL_PLAINTEXT`, so credentials
+and data are not encrypted in transit; the single VM is a single point of
+failure; and "continuous" means a 10-minute micro-batch cadence (scheduled
+Actions runs), not per-event streaming. See `infra/kafka-vm-setup.md`.
