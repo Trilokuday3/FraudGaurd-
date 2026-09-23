@@ -28,7 +28,10 @@ VM (or clone the repo there).
 ## 3. Choose SASL credentials
 
 Pick a username/password for the Kafka broker's PLAIN SASL mechanism.
-Use a strong, random password: port 9092 is public. These become
+Use a strong, random password: port 9092 is public. Keep the username
+simple (letters, digits, underscore) and the password alphanumeric (no
+quotes, backslash or `$`), because both are embedded in a JAAS string and
+a properties file without escaping. These become
 `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD` -- set them as GitHub
 Actions **secrets** (Task 7), never committed.
 
@@ -40,6 +43,11 @@ export KAFKA_SASL_USERNAME=<chosen username>
 export KAFKA_SASL_PASSWORD=<chosen password>
 docker compose -f streaming/docker-compose.kafka.yml up -d
 ```
+
+Note: every `docker compose ... exec` (or `ps`, `logs`, etc.) re-interpolates
+the compose file, so `VM_PUBLIC_HOST`, `KAFKA_SASL_USERNAME` and
+`KAFKA_SASL_PASSWORD` must still be exported in that shell (in a new SSH
+session, export them again). Missing values make compose fail fast.
 
 ## 5. Firewall
 
@@ -138,6 +146,16 @@ host you SSH to. Never commit the private key.
 - [ ] Listing topics with the SASL client config succeeds and shows `fraudguard.transactions`
 - [ ] A connection *without* the SASL credentials is rejected (confirms auth is actually enforced, not just configured)
 - [ ] `ssh -i fraudguard-streaming-deploy-key deploy@<VM_PUBLIC_HOST> "ls /opt/fraudguard/spark-checkpoint"` succeeds
+
+## Troubleshooting
+
+If the broker refuses authentication or fails to start, run
+`docker compose -f streaming/docker-compose.kafka.yml logs kafka` and check
+the generated server.properties (inside the container, under
+`/opt/kafka/config/` or the path the logs mention) for the JAAS key first.
+It must read `listener.name.sasl_plaintext.plain.sasl.jaas.config` (with an
+underscore in `sasl_plaintext`); the compose variable uses three underscores
+(`SASL___PLAINTEXT`) to produce that.
 
 ## Known limitations
 
