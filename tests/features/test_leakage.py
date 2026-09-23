@@ -39,6 +39,9 @@ def test_no_forbidden_columns_in_features():
 
 
 def test_every_transaction_has_a_feature_row():
-    transactions = pd.read_parquet(os.path.join(DATA_DIR, "transactions.parquet"))
+    transactions_path = os.path.join(DATA_DIR, "transactions.parquet")
+    if not os.path.exists(transactions_path):
+        pytest.skip(f"{transactions_path} not found -- run `make seed features` first")
+    transactions = pd.read_parquet(transactions_path)
     features = _load_features()
     assert set(features["transaction_id"]) == set(transactions["transaction_id"])
