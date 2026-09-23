@@ -20,9 +20,14 @@ export function SHAPBarChart({ data }: SHAPBarChartProps) {
   return (
     <ResponsiveContainer width="100%" height={Math.max(200, sorted.length * 32)}>
       <BarChart data={sorted} layout="vertical" margin={{ left: 24 }}>
-        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-        <XAxis type="number" />
-        <YAxis type="category" dataKey="feature" width={160} tick={{ fontSize: 11 }} />
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#9099A8" opacity={0.25} />
+        <XAxis type="number" tick={{ fill: "#9099A8" }} />
+        <YAxis
+          type="category"
+          dataKey="feature"
+          width={160}
+          tick={{ fontSize: 11, fill: "#9099A8" }}
+        />
         <Tooltip />
         <Bar dataKey="value" fill="#f59e0b" />
       </BarChart>
