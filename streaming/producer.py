@@ -6,6 +6,11 @@ so the cursor is persisted in Postgres between runs (streaming.cursor_store)
 instead of held in process memory."""
 
 import json
+import os
+from typing import Any
+
+from serving.models import make_session_factory
+from streaming.cursor_store import advance_cursor, get_cursor
 
 
 def load_sample_pool(path: str) -> list[dict]:
@@ -22,3 +27,55 @@ def select_batch(pool: list[dict], cursor: int, batch_size: int) -> tuple[list[d
     batch = [pool[(cursor + i) % n] for i in range(batch_size)]
     new_cursor = (cursor + batch_size) % n
     return batch, new_cursor
+
+
+def build_kafka_producer(bootstrap_servers: str, username: str, password: str) -> Any:
+    # SASL_PLAINTEXT, not SASL_SSL -- Task 6's broker has no TLS
+    # termination in front of it (documented there as a follow-up, not
+    # solved). Credentials are authenticated but not encrypted in
+    # transit; matches infra/kafka-vm-setup.md's actual broker config.
+    from kafka import KafkaProducer
+
+    return KafkaProducer(
+        bootstrap_servers=bootstrap_servers,
+        security_protocol="SASL_PLAINTEXT",
+        sasl_mechanism="PLAIN",
+        sasl_plain_username=username,
+        sasl_plain_password=password,
+        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+    )
+
+
+def publish_batch(producer: Any, topic: str, rows: list[dict]) -> None:
+    for row in rows:
+        producer.send(topic, value=row)
+    producer.flush()
+
+
+def main() -> None:
+    pool_path = os.environ.get("SAMPLE_POOL_PATH", "deploy/sample_transactions.json")
+    batch_size = int(os.environ.get("PRODUCER_BATCH_SIZE", "30"))
+    topic = os.environ.get("KAFKA_TOPIC", "fraudguard.transactions")
+
+    db_url = os.environ["DECISION_DB_URL"]
+    bootstrap_servers = os.environ["KAFKA_BOOTSTRAP_SERVERS"]
+    username = os.environ["KAFKA_SASL_USERNAME"]
+    password = os.environ["KAFKA_SASL_PASSWORD"]
+
+    session = make_session_factory(db_url)()
+    try:
+        cursor = get_cursor(session)
+        pool = load_sample_pool(pool_path)
+        batch, new_cursor = select_batch(pool, cursor, batch_size)
+
+        producer = build_kafka_producer(bootstrap_servers, username, password)
+        publish_batch(producer, topic, batch)
+
+        advance_cursor(session, new_cursor)
+        print(f"Published {len(batch)} rows, cursor {cursor} -> {new_cursor}")
+    finally:
+        session.close()
+
+
+if __name__ == "__main__":
+    main()
