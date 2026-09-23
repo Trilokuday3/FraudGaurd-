@@ -71,8 +71,13 @@ including an ephemeral Docker Postgres container where available). Before
 trusting the deploy, run, from the repo root, with your real Neon URL:
 
 ```
-DECISION_DB_URL=<your Neon connection string, with +psycopg> pytest tests/unit tests/integration -v
+FRAUDGUARD_TESTS_ALLOW_REMOTE_DB=1 DECISION_DB_URL=<your Neon connection string, with +psycopg> pytest tests/unit tests/integration -v
 ```
+
+`FRAUDGUARD_TESTS_ALLOW_REMOTE_DB=1` is required: without it,
+`tests/conftest.py` swaps any non-SQLite `DECISION_DB_URL` for a temporary
+SQLite file. **Warning:** this run writes test rows into that database, so
+point it at a throwaway Neon branch, never the live dashboard database.
 
 Expect the same pass count as local SQLite runs. If anything fails here
 that didn't fail locally, it's a real Postgres-specific issue to fix
