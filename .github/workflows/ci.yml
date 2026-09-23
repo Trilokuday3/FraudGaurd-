@@ -8,6 +8,11 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: ./deploy/model_store
+      MLFLOW_RUN_ID: 17d00e31654c4b9e8a9aa389f797d650
+      DECISION_DB_URL: sqlite:///./decisions.db
+      THRESHOLDS_PATH: ./decision/thresholds.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
