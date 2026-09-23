@@ -70,6 +70,7 @@ def build_spark_session():
 
     return (
         SparkSession.builder.appName("fraudguard-streaming-consumer")
+        # Must match the pinned pyspark 3.5.x / Scala 2.12 in streaming/requirements.txt.
         .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0")
         .getOrCreate()
     )
