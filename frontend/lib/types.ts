@@ -1,3 +1,13 @@
+export interface FeatureRow {
+  transaction_id?: string;
+  customer_id?: string;
+  merchant_id?: string;
+  amount?: number;
+  payment_method?: string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
 export interface DecisionRow {
   id: number;
   transaction_id: string;
@@ -7,6 +17,7 @@ export interface DecisionRow {
   decision_source: "model" | "rule" | "rule_override";
   model_run_id: string;
   shap_top_features: Record<string, number>;
+  feature_row?: FeatureRow;
   created_at: string;
 }
 
@@ -76,5 +87,6 @@ export interface InvestigationResponse {
   decision_source: "model" | "rule" | "rule_override";
   model_run_id: string;
   shap_top_features: Record<string, number>;
+  feature_row?: FeatureRow;
   created_at: string;
 }
