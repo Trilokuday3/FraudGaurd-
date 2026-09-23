@@ -140,3 +140,43 @@ Both Render and Vercel keep every prior deploy browsable in their
 dashboards with a one-click "redeploy this version" / "promote to
 production" action. No custom rollback tooling is introduced for a project
 at this scale — use the platform's own history.
+
+## Live streaming pipeline (Kafka + Spark)
+
+**Status: built, pending setup and verification.** The code, compose file,
+runbook and workflow exist (see
+`docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md`
+and `docs/superpowers/plans/2026-09-23-live-kafka-spark-streaming.md`), but
+the VM, Kafka broker and GitHub secrets have not been created and the
+pipeline has not been run end-to-end. Until it is verified, the deployed
+app's live data still comes from the in-process replay worker
+(`ENABLE_REPLAY_WORKER=true` on Render, as configured above). One-time
+VM/Kafka setup is in `infra/kafka-vm-setup.md`.
+
+**GitHub Actions secrets required** (`.github/workflows/live-streaming.yml`):
+
+| Secret | Value |
+|---|---|
+| `DEPLOYED_DECISION_DB_URL` | the same Neon string already used by `mlops-monitor.yml`, `postgresql+psycopg://` scheme |
+| `KAFKA_BOOTSTRAP_SERVERS` | `<VM host>:9092` |
+| `KAFKA_SASL_USERNAME` | chosen in `infra/kafka-vm-setup.md` step 3 |
+| `KAFKA_SASL_PASSWORD` | chosen in `infra/kafka-vm-setup.md` step 3 |
+| `VM_HOST` | the VM's public IP/hostname |
+| `VM_SSH_PRIVATE_KEY` | the deploy key generated in `infra/kafka-vm-setup.md` step 7 |
+
+The workflow is a visible no-op (it logs a "skipping" note) until **all
+six** secrets are set.
+
+**Acceptance checklist and cutover** (do these in order; the replay worker
+stays on until the pipeline is proven):
+
+1. Run the workflow manually (Actions tab, "Live streaming pipeline", Run workflow).
+2. Confirm `GET /decisions/stats` `total` on the Render API grows.
+3. Run it again with nothing new to produce and confirm no rows are added (idempotent empty run).
+4. Only then, **turn off the old replay worker**: set `ENABLE_REPLAY_WORKER=false` on Render (Environment tab). Running both simultaneously double-writes to the same `decisions` table.
+5. Confirm the dashboard pages (Dashboard, Live Transactions, Monitoring) still render.
+
+**Known limitations:** the broker uses `SASL_PLAINTEXT`, so credentials
+and data are not encrypted in transit; the single VM is a single point of
+failure; and "continuous" means a 10-minute micro-batch cadence (scheduled
+Actions runs), not per-event streaming. See `infra/kafka-vm-setup.md`.
