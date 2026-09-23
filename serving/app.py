@@ -220,6 +220,7 @@ def _decision_to_row(record: Decision) -> DecisionRow:
         decision_source=record.decision_source,
         model_run_id=record.model_run_id,
         shap_top_features=record.shap_top_features,
+        feature_row=record.feature_row,
         created_at=record.created_at,
     )
 
@@ -316,6 +317,7 @@ def get_investigation(transaction_id: str) -> InvestigationResponse:
             decision_source=record.decision_source,
             model_run_id=record.model_run_id,
             shap_top_features=record.shap_top_features,
+            feature_row=record.feature_row,
             created_at=record.created_at,
         )
     finally:

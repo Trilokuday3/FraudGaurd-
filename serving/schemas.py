@@ -67,6 +67,7 @@ class InvestigationResponse(BaseModel):
     decision_source: str
     model_run_id: str
     shap_top_features: dict[str, float]
+    feature_row: dict[str, object] = {}
     created_at: datetime
 
     @field_serializer("created_at")
@@ -83,6 +84,7 @@ class DecisionRow(BaseModel):
     decision_source: str
     model_run_id: str
     shap_top_features: dict[str, float]
+    feature_row: dict[str, object] = {}
     created_at: datetime
 
     @field_serializer("created_at")

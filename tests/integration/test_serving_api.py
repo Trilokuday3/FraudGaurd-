@@ -201,6 +201,7 @@ def test_investigation_lookup_matches_what_score_persisted(app_client):
     assert investigated["model_score"] == scored["model_score"]
     assert investigated["decision"] == scored["decision"]
     assert investigated["triggered_rules"] == scored["triggered_rules"]
+    assert investigated["feature_row"]["transaction_id"] == "TXN9999"
 
 
 def test_investigation_lookup_404s_for_unknown_transaction(app_client):
@@ -305,6 +306,7 @@ def test_list_decisions_returns_most_recent_first(app_client):
     body = response.json()
     assert len(body["items"]) == 2
     assert body["items"][0]["created_at"] >= body["items"][1]["created_at"]
+    assert "amount" in body["items"][0]["feature_row"]
 
 
 def test_list_decisions_filters_by_decision_type(app_client):
