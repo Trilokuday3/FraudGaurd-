@@ -1,7 +1,7 @@
 # Sub-project 5 (revised): Live Kafka + Spark Streaming — Design
 
 **Date:** 2026-09-23
-**Status:** Draft, pending review
+**Status:** Implemented (pending live verification)
 **Roadmap:** `docs/superpowers/specs/2026-09-12-fraudguard-platform-roadmap.md` (sub-project 5)
 **Supersedes:** the roadmap's original sub-project 5 scope ("local-only,
 Docker Compose") and `2026-09-16-deployment-portfolio-design.md`'s replay

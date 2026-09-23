@@ -23,3 +23,5 @@ frontend/.env.local
 
 # live streaming pipeline: broker SASL credentials (generated on the VM, never committed)
 streaming/kafka_server_jaas.conf
+# local Spark Structured Streaming checkpoint (the real one lives on the VM)
+spark-checkpoint/

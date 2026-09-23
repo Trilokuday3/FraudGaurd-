@@ -91,8 +91,9 @@ bootstrap via `localhost:9092`, then follow the advertised address) must be
 able to reach the VM's **public** address from inside the VM. If the
 provider's network doesn't let a VM reach its own public IP (no hairpin
 NAT), or a firewall blocks it, those connections hang or time out -- allow
-it, or resolve `VM_PUBLIC_HOST` to the VM's own address inside the
-container (e.g. an `extra_hosts` entry).
+it, or (only when `VM_PUBLIC_HOST` is a hostname rather than an IP)
+resolve it to the VM's own address inside the container, e.g. with an
+`extra_hosts` entry.
 
 ## 5. Firewall
 

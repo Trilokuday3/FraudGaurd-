@@ -167,14 +167,44 @@ VM/Kafka setup is in `infra/kafka-vm-setup.md`.
 The workflow is a visible no-op (it logs a "skipping" note) until **all
 six** secrets are set.
 
-**Acceptance checklist and cutover** (do these in order; the replay worker
-stays on until the pipeline is proven):
+**Acceptance checklist and cutover.** The pipeline is built but not yet
+verified or live; these steps are how it gets verified. Judge acceptance
+from the workflow run logs, not from the dashboard: every run publishes a
+new batch (the producer always sends `PRODUCER_BATCH_SIZE` rows, default
+30), and until cutover the replay worker keeps adding rows to the same
+table. Do these in order; the replay worker stays on until the pipeline is
+proven.
 
-1. Run the workflow manually (Actions tab, "Live streaming pipeline", Run workflow).
-2. Confirm `GET /decisions/stats` `total` on the Render API grows.
-3. Run it again with nothing new to produce and confirm no rows are added (idempotent empty run).
-4. Only then, **turn off the old replay worker**: set `ENABLE_REPLAY_WORKER=false` on Render (Environment tab). Running both simultaneously double-writes to the same `decisions` table.
-5. Confirm the dashboard pages (Dashboard, Live Transactions, Monitoring) still render.
+1. Run the workflow manually (Actions tab, "Live streaming pipeline", Run
+   workflow). In its logs, the "Run producer" step must print
+   `Published N rows, cursor A -> B`, and the "Run Spark consumer" step
+   must print `batch <id>: scored N, skipped 0` (on the very first run
+   there may be one such line per batch Spark splits the backlog into;
+   the scored counts must add up to what was published).
+2. Run it a second time. The Spark step must score exactly one new
+   batch's worth -- the N rows that run's producer step published -- and
+   nothing from the first run. Re-scoring the first run's rows would mean
+   the checkpoint didn't round-trip through the VM.
+3. Optionally, confirm `GET /decisions/stats` `total` on the Render API
+   grew by at least N per run. It grows by more than N while the replay
+   worker is still on, so this is a sanity check, not the acceptance test.
+4. Only then, **turn off the old replay worker**: set
+   `ENABLE_REPLAY_WORKER=false` on Render (Environment tab). Running both
+   long-term double-writes to the same `decisions` table.
+5. Confirm the dashboard pages (Dashboard, Live Transactions, Monitoring)
+   still render, and that `total` keeps growing only as pipeline runs
+   complete (by N per run).
+
+**Actions minutes / repo visibility (open decision for the repo owner).**
+If this repo is private, GitHub Actions includes 2,000 free minutes a
+month, and every scheduled run is billed at least one minute even when it
+only logs "skipping". At `*/10`, this workflow alone is about 4,320 runs a
+month, and `keep-alive.yml` runs on the same `*/10` schedule, so together
+they exceed the free allowance before counting the minutes the real
+producer + Spark runs take. Options: make the repo public (standard
+GitHub-hosted runners are free for public repos), or lower the cron
+frequency of one or both workflows (e.g. hourly). Neither has been chosen
+yet; the cron schedules are unchanged pending that decision.
 
 **Known limitations:** the broker uses `SASL_PLAINTEXT`, so credentials
 and data are not encrypted in transit; the single VM is a single point of

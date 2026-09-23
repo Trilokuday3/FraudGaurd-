@@ -32,6 +32,10 @@ jobs:
         if: env.HAVE_SECRETS == 'true'
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            streaming/requirements.txt
 
       - uses: actions/setup-java@v4
         if: env.HAVE_SECRETS == 'true'
@@ -53,6 +57,7 @@ jobs:
         run: python -m streaming.producer
 
       - name: Fetch Spark checkpoint from the VM
+        id: fetch_checkpoint
         if: env.HAVE_SECRETS == 'true'
         env:
           VM_HOST: ${{ secrets.VM_HOST }}
@@ -77,8 +82,10 @@ jobs:
           SPARK_CHECKPOINT_DIR: ./spark-checkpoint
         run: python -m streaming.spark_consumer
 
+      # Only push if the fetch succeeded: pushing a fresh/partial local
+      # checkpoint over the VM's real one would lose the stored offsets.
       - name: Push updated Spark checkpoint back to the VM
-        if: ${{ always() && env.HAVE_SECRETS == 'true' }}
+        if: ${{ always() && env.HAVE_SECRETS == 'true' && steps.fetch_checkpoint.outcome == 'success' }}
         env:
           VM_HOST: ${{ secrets.VM_HOST }}
         run: |
