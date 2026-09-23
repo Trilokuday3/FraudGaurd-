@@ -11,15 +11,15 @@
 # in front of the exposed port before treating this as production-grade --
 # documented as a follow-up in infra/kafka-vm-setup.md, not solved here.
 #
-# Env var naming rule in the apache/kafka image: KAFKA_* variables become
-# properties by mapping "_" -> ".", "__" -> "-", "___" -> "_". Listener
-# names containing an underscore (SASL_PLAINTEXT) therefore need three
-# underscores in the variable name (SASL___PLAINTEXT) to produce
-# "listener.name.sasl_plaintext.plain.sasl.jaas.config".
-#
-# The exported VM_PUBLIC_HOST, KAFKA_SASL_USERNAME and KAFKA_SASL_PASSWORD
-# must be set in the shell for every docker compose command (compose
-# re-interpolates this file each time); missing values fail fast.
+# SASL credentials: the broker reads them from a static JAAS file,
+# ./kafka_server_jaas.conf next to this compose file, mounted read-only.
+# That file is generated on the VM (infra/kafka-vm-setup.md step 4),
+# chmod 600, and NEVER committed (it is in .gitignore). Using a JAAS file
+# avoids depending on how the image maps KAFKA_* env var names containing
+# underscores (the SASL_PLAINTEXT listener name) onto properties, which
+# couldn't be verified here. This file therefore no longer interpolates
+# the SASL credentials; only VM_PUBLIC_HOST must be exported for every
+# docker compose command (a missing value fails fast).
 services:
   kafka:
     image: apache/kafka:3.7.0
@@ -40,13 +40,15 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_LISTENER_NAME_SASL___PLAINTEXT_PLAIN_SASL_JAAS_CONFIG: >-
-        org.apache.kafka.common.security.plain.PlainLoginModule required
-        username="${KAFKA_SASL_USERNAME:?set KAFKA_SASL_USERNAME}"
-        password="${KAFKA_SASL_PASSWORD:?set KAFKA_SASL_PASSWORD}"
-        user_${KAFKA_SASL_USERNAME:?set KAFKA_SASL_USERNAME}="${KAFKA_SASL_PASSWORD:?set KAFKA_SASL_PASSWORD}";
+      # Keep broker data on the named volume below (the image's default
+      # log dir is elsewhere, which would lose data on container re-create).
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Small fixed heap so the broker fits on a 1 GB VM.
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/secrets/kafka_server_jaas.conf"
     volumes:
       - kafka-data:/var/lib/kafka/data
+      - ./kafka_server_jaas.conf:/etc/kafka/secrets/kafka_server_jaas.conf:ro
 
 volumes:
   kafka-data:

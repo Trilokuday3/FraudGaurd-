@@ -20,3 +20,6 @@ node_modules/
 .next/
 frontend/next-env.d.ts
 frontend/.env.local
+
+# live streaming pipeline: broker SASL credentials (generated on the VM, never committed)
+streaming/kafka_server_jaas.conf

@@ -35,19 +35,64 @@ a properties file without escaping. These become
 `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD` -- set them as GitHub
 Actions **secrets** (Task 7), never committed.
 
-## 4. Start the broker
+## 4. Generate the JAAS file and start the broker
+
+The broker reads its SASL credentials from a static JAAS file,
+`streaming/kafka_server_jaas.conf`, which the compose file mounts
+read-only into the container. The compose file itself no longer
+interpolates the credentials -- they are only used here, to generate that
+file on the VM. The file holds the password in plain text: it is listed in
+`.gitignore`, must be `chmod 600`, and must **never** be committed.
+
+Generate it from the repo checkout's root (the compose file resolves the
+mount relative to `streaming/`). Create it **before** the first
+`docker compose up`: if the mounted file is missing, Docker creates an
+empty directory in its place and the broker fails to start.
 
 ```
 export VM_PUBLIC_HOST=<your VM's public IP or hostname>
 export KAFKA_SASL_USERNAME=<chosen username>
 export KAFKA_SASL_PASSWORD=<chosen password>
+
+umask 077
+cat > streaming/kafka_server_jaas.conf <<EOF
+KafkaServer {
+  org.apache.kafka.common.security.plain.PlainLoginModule required
+  username="$KAFKA_SASL_USERNAME"
+  password="$KAFKA_SASL_PASSWORD"
+  user_$KAFKA_SASL_USERNAME="$KAFKA_SASL_PASSWORD";
+};
+EOF
+chmod 600 streaming/kafka_server_jaas.conf
+
 docker compose -f streaming/docker-compose.kafka.yml up -d
 ```
 
+`username`/`password` are what the broker uses for its own inter-broker
+connections; the `user_<name>="<password>"` entry is the account clients
+(the producer and the Spark consumer) authenticate as. Both use the same
+credentials here.
+
+The container reads the file as its own (non-root) user. If the broker
+logs a permission error reading it, keep `chmod 600` and instead
+`chown` the file to the container user's UID (check with
+`docker compose -f streaming/docker-compose.kafka.yml run --rm kafka id -u`).
+
 Note: every `docker compose ... exec` (or `ps`, `logs`, etc.) re-interpolates
-the compose file, so `VM_PUBLIC_HOST`, `KAFKA_SASL_USERNAME` and
-`KAFKA_SASL_PASSWORD` must still be exported in that shell (in a new SSH
-session, export them again). Missing values make compose fail fast.
+the compose file, so `VM_PUBLIC_HOST` must still be exported in that shell
+(in a new SSH session, export it again); a missing value makes compose fail
+fast. `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD` must also be exported
+for step 6's client config.
+
+**Advertised address.** The broker advertises `VM_PUBLIC_HOST:9092`, and
+uses that same advertised listener for its own inter-broker connections.
+So both the broker itself and the in-container CLI calls in step 6 (which
+bootstrap via `localhost:9092`, then follow the advertised address) must be
+able to reach the VM's **public** address from inside the VM. If the
+provider's network doesn't let a VM reach its own public IP (no hairpin
+NAT), or a firewall blocks it, those connections hang or time out -- allow
+it, or resolve `VM_PUBLIC_HOST` to the VM's own address inside the
+container (e.g. an `extra_hosts` entry).
 
 ## 5. Firewall
 
@@ -60,8 +105,8 @@ provider's network/security-group rules.
 
 The Kafka CLI scripts in the `apache/kafka` image live in
 `/opt/kafka/bin/`. First write a small client config inside the container
-(the variables expand on the VM shell, so they must be exported as in
-step 4):
+(the variables expand on the VM shell, so `KAFKA_SASL_USERNAME` /
+`KAFKA_SASL_PASSWORD` must be exported as in step 4):
 
 ```
 docker compose -f streaming/docker-compose.kafka.yml exec kafka sh -c 'cat > /tmp/client.properties <<EOF
@@ -77,8 +122,13 @@ Create the topic:
 docker compose -f streaming/docker-compose.kafka.yml exec kafka \
   /opt/kafka/bin/kafka-topics.sh --create --topic fraudguard.transactions \
   --bootstrap-server localhost:9092 \
+  --config retention.ms=86400000 \
   --command-config /tmp/client.properties
 ```
+
+`retention.ms=86400000` keeps one day of messages. That bounds disk use
+and how much gets rescored if the Spark checkpoint is ever lost (see
+"Checkpoint and broker data" below).
 
 Confirm SASL auth works by listing topics with the same config (should
 show `fraudguard.transactions`):
@@ -141,6 +191,7 @@ host you SSH to. Never commit the private key.
 
 ## Verification checklist
 
+- [ ] `ls -l streaming/kafka_server_jaas.conf` shows a regular file with mode `-rw-------`, and `git status` does not list it
 - [ ] `docker compose -f streaming/docker-compose.kafka.yml ps` shows the broker running
 - [ ] From your own machine: `nc -zv <VM_PUBLIC_HOST> 9092` succeeds (port reachable)
 - [ ] Listing topics with the SASL client config succeeds and shows `fraudguard.transactions`
@@ -149,13 +200,33 @@ host you SSH to. Never commit the private key.
 
 ## Troubleshooting
 
-If the broker refuses authentication or fails to start, run
-`docker compose -f streaming/docker-compose.kafka.yml logs kafka` and check
-the generated server.properties (inside the container, under
-`/opt/kafka/config/` or the path the logs mention) for the JAAS key first.
-It must read `listener.name.sasl_plaintext.plain.sasl.jaas.config` (with an
-underscore in `sasl_plaintext`); the compose variable uses three underscores
-(`SASL___PLAINTEXT`) to produce that.
+If the broker refuses authentication or fails to start, check
+`docker compose -f streaming/docker-compose.kafka.yml logs kafka` for
+JAAS/SASL errors, and confirm the mounted file path:
+`docker compose -f streaming/docker-compose.kafka.yml exec kafka cat /etc/kafka/secrets/kafka_server_jaas.conf`
+must print the `KafkaServer` section. "Is a directory" means the file
+didn't exist on the VM when the container was created: generate it (step
+4), remove the empty directory Docker created in its place, then
+`docker compose -f streaming/docker-compose.kafka.yml up -d --force-recreate`.
+
+If CLI calls or broker startup hang or time out, check that the VM can
+reach its own public address on 9092 (see "Advertised address" in step 4).
+
+## Checkpoint and broker data
+
+The Spark consumer's checkpoint (`/opt/fraudguard/spark-checkpoint` on the
+VM, rsynced by the workflow) records which topic offsets have already been
+processed. It must stay consistent with the broker's data volume:
+
+- **Wiping the broker's data volume** (e.g. `docker compose ... down -v`)
+  resets the topic's offsets to 0. Clear `/opt/fraudguard/spark-checkpoint`
+  on the VM at the same time (`sudo -u deploy sh -c 'rm -rf /opt/fraudguard/spark-checkpoint/*'`);
+  otherwise Spark's checkpointed offsets exceed the empty topic's and the
+  consumer fails with a data-loss error.
+- **Losing the checkpoint** (while the broker data survives) makes the
+  consumer restart at `earliest` and rescore everything still retained in
+  the topic, writing duplicate decisions. The topic's retention
+  (`retention.ms=86400000`, one day, set in step 6) bounds how much.
 
 ## Known limitations
 
