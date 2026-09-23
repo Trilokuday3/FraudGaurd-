@@ -34,6 +34,7 @@ def build_kafka_producer(bootstrap_servers: str, username: str, password: str) -
     # termination in front of it (documented there as a follow-up, not
     # solved). Credentials are authenticated but not encrypted in
     # transit; matches infra/kafka-vm-setup.md's actual broker config.
+    # kafka is imported lazily so CI (no kafka-python installed) can import this module.
     from kafka import KafkaProducer
 
     return KafkaProducer(
@@ -47,8 +48,15 @@ def build_kafka_producer(bootstrap_servers: str, username: str, password: str) -
 
 
 def publish_batch(producer: Any, topic: str, rows: list[dict]) -> None:
-    for row in rows:
-        producer.send(topic, value=row)
+    """Send every row and wait for the broker to acknowledge each one.
+
+    kafka-python's flush() does not raise per-record delivery errors, so
+    each send()'s future is resolved explicitly: a failed or timed-out
+    delivery raises here, before main() advances the stored cursor, so the
+    cursor can never move past rows that never reached the topic."""
+    futures = [producer.send(topic, value=row) for row in rows]
+    for future in futures:
+        future.get(timeout=30)
     producer.flush()
 
 
@@ -69,7 +77,10 @@ def main() -> None:
         batch, new_cursor = select_batch(pool, cursor, batch_size)
 
         producer = build_kafka_producer(bootstrap_servers, username, password)
-        publish_batch(producer, topic, batch)
+        try:
+            publish_batch(producer, topic, batch)
+        finally:
+            producer.close()
 
         advance_cursor(session, new_cursor)
         print(f"Published {len(batch)} rows, cursor {cursor} -> {new_cursor}")
