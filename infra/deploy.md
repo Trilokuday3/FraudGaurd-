@@ -148,29 +148,30 @@ at this scale — use the platform's own history.
 
 ## Live streaming pipeline (Kafka + Spark)
 
-**Status: built, pending setup and verification.** The code, compose file,
-runbook and workflow exist (see
-`docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md`
-and `docs/superpowers/plans/2026-09-23-live-kafka-spark-streaming.md`), but
-the VM, Kafka broker and GitHub secrets have not been created and the
-pipeline has not been run end-to-end. Until it is verified, the deployed
-app's live data still comes from the in-process replay worker
-(`ENABLE_REPLAY_WORKER=true` on Render, as configured above). One-time
-VM/Kafka setup is in `infra/kafka-vm-setup.md`.
+**Status: built, broker provisioned, pending the first end-to-end run.**
+The code and workflow exist (see
+`docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md`;
+that spec and its plan describe the original self-hosted-VM design, which
+was replaced by Aiven for Kafka -- the connection details below are
+current). The Kafka broker is an Aiven for Kafka service with the
+`fraudguard.transactions` topic; a real mTLS connection to it from a
+developer machine has been confirmed, but the workflow itself has not run.
+Until it is verified, the deployed app's live data still comes from the
+in-process replay worker (`ENABLE_REPLAY_WORKER=true` on Render, as
+configured above). One-time setup is in `infra/kafka-aiven-setup.md`.
 
 **GitHub Actions secrets required** (`.github/workflows/live-streaming.yml`):
 
 | Secret | Value |
 |---|---|
 | `DEPLOYED_DECISION_DB_URL` | the same Neon string already used by `mlops-monitor.yml`, `postgresql+psycopg://` scheme |
-| `KAFKA_BOOTSTRAP_SERVERS` | `<VM host>:9092` |
-| `KAFKA_SASL_USERNAME` | chosen in `infra/kafka-vm-setup.md` step 3 |
-| `KAFKA_SASL_PASSWORD` | chosen in `infra/kafka-vm-setup.md` step 3 |
-| `VM_HOST` | the VM's public IP/hostname |
-| `VM_SSH_PRIVATE_KEY` | the deploy key generated in `infra/kafka-vm-setup.md` step 7 |
+| `KAFKA_BOOTSTRAP_SERVERS` | the Aiven service URI, `<host>:<port>` |
+| `KAFKA_CA_CERT` | full contents of Aiven's `ca.pem` |
+| `KAFKA_SERVICE_CERT` | full contents of `service.cert` (the access certificate) |
+| `KAFKA_SERVICE_KEY` | full contents of `service.key` (the access key) |
 
 The workflow is a visible no-op (it logs a "skipping" note) until **all
-six** secrets are set.
+five** secrets are set.
 
 **Acceptance checklist and cutover.** The pipeline is built but not yet
 verified or live; these steps are how it gets verified. Judge acceptance
@@ -189,7 +190,8 @@ proven.
 2. Run it a second time. The Spark step must score exactly one new
    batch's worth -- the N rows that run's producer step published -- and
    nothing from the first run. Re-scoring the first run's rows would mean
-   the checkpoint didn't round-trip through the VM.
+   the checkpoint cache didn't restore (check the "Restore Spark checkpoint" step
+   says "Cache restored").
 3. Optionally, confirm `GET /decisions/stats` `total` on the Render API
    grew by at least N per run. It grows by more than N while the replay
    worker is still on, so this is a sanity check, not the acceptance test.
@@ -200,18 +202,12 @@ proven.
    still render, and that `total` keeps growing only as pipeline runs
    complete (by N per run).
 
-**Actions minutes / repo visibility (open decision for the repo owner).**
-If this repo is private, GitHub Actions includes 2,000 free minutes a
-month, and every scheduled run is billed at least one minute even when it
-only logs "skipping". At `*/10`, this workflow alone is about 4,320 runs a
-month, and `keep-alive.yml` runs on the same `*/10` schedule, so together
-they exceed the free allowance before counting the minutes the real
-producer + Spark runs take. Options: make the repo public (standard
-GitHub-hosted runners are free for public repos), or lower the cron
-frequency of one or both workflows (e.g. hourly). Neither has been chosen
-yet; the cron schedules are unchanged pending that decision.
-
-**Known limitations:** the broker uses `SASL_PLAINTEXT`, so credentials
-and data are not encrypted in transit; the single VM is a single point of
-failure; and "continuous" means a 10-minute micro-batch cadence (scheduled
-Actions runs), not per-event streaming. See `infra/kafka-vm-setup.md`.
+**Known limitations:** the Spark checkpoint lives in the GitHub Actions
+cache; if it is evicted, the next run re-reads the topic from its earliest
+retained offset and re-scores those rows once (`decisions` has no unique
+key on `transaction_id`, and the sample pool cycles anyway, so this is
+harmless for demo data). "Continuous" means a 10-minute micro-batch cadence
+(scheduled Actions runs), not per-event streaming, and scheduled runs can
+be delayed or skipped by GitHub under load. The Aiven plan's topic limits
+and retention should be confirmed in the Aiven console. See
+`infra/kafka-aiven-setup.md`.

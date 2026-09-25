@@ -2,6 +2,11 @@
 
 **Date:** 2026-09-23
 **Status:** Implemented (pending live verification)
+**Amendment (2026-09-26):** the broker moved from a self-hosted VM (SASL) to
+Aiven for Kafka (client-certificate mTLS), and the Spark checkpoint moved
+from the VM to the GitHub Actions cache. Sections below that mention the VM,
+SASL or rsync describe the original design; `infra/kafka-aiven-setup.md`
+and `infra/deploy.md` are current.
 **Roadmap:** `docs/superpowers/specs/2026-09-12-fraudguard-platform-roadmap.md` (sub-project 5)
 **Supersedes:** the roadmap's original sub-project 5 scope ("local-only,
 Docker Compose") and `2026-09-16-deployment-portfolio-design.md`'s replay

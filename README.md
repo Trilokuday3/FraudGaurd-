@@ -37,13 +37,14 @@ Simulator, and Monitoring against the real decision engine API.
 frontend's Live Transactions/Monitoring pages have a growing feed to
 poll.)
 
-**Live streaming pipeline (Kafka + Spark) — built, pending setup and
-verification.** `streaming/` holds a producer, a Spark Structured Streaming
-consumer and a cursor store, run on a 10-minute GitHub Actions schedule
-against a Kafka broker on a VM (`streaming/docker-compose.kafka.yml`,
-`infra/kafka-vm-setup.md`, `.github/workflows/live-streaming.yml`). The VM,
-broker and secrets are not yet created and the pipeline has not been run
-end-to-end, so the deployed app is not yet fed by it. See
+**Live streaming pipeline (Kafka + Spark) — built, pending first
+end-to-end run.** `streaming/` holds a producer, a Spark Structured
+Streaming consumer and a cursor store, run on a 10-minute GitHub Actions
+schedule against an Aiven for Kafka service authenticated with client
+certificates (`infra/kafka-aiven-setup.md`,
+`.github/workflows/live-streaming.yml`). The broker and topic exist, but the
+GitHub secrets are not yet set and the workflow has not run, so the deployed
+app is not yet fed by it. See
 `docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md`.
 
 **Sub-project 8 (Deployment + Portfolio Integration) — code/config/CI
@@ -133,8 +134,8 @@ mlops/                   MLflow registry promotion/rollback, scored-traffic DQ c
 frontend/                Next.js web app: Dashboard, Live Transactions, Investigations, Model Center, Threshold Simulator, Monitoring -> consumes the serving/ API
 scripts/                 local-dev + deploy helpers: replay_transactions.py (sub-project 5 streaming stand-in), vendor_model_store.py and generate_sample_transactions.py (deployment prep, sub-project 8)
 deploy/                  committed deployment artifacts: model_store/ (vendored MLflow snapshot), requirements.txt (lean prod deps), sample_transactions.json (bundled replay data)
-streaming/               live Kafka + Spark pipeline: producer, Spark consumer, cursor store, docker-compose.kafka.yml (built, pending setup; see docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md)
-infra/                   deploy.md: the real step-by-step deployment runbook; kafka-vm-setup.md: one-time Kafka VM setup
+streaming/               live Kafka + Spark pipeline: producer, Spark consumer, cursor store, mTLS config for Aiven Kafka (built, pending first run; see docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md)
+infra/                   deploy.md: the real step-by-step deployment runbook; kafka-aiven-setup.md: one-time Aiven Kafka setup
 tests/unit/              generator + feature + modeling unit tests
 tests/features/          leakage + schema gate on the feature table
 tests/dq/                pandera data-quality gate against ./data
