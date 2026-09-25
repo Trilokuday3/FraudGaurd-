@@ -5,7 +5,8 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch: {}
 
-# Two overlapping runs would corrupt the rsynced Spark checkpoint.
+# Two overlapping runs would both restore the same checkpoint and re-process
+# the same offsets.
 concurrency:
   group: live-streaming
   cancel-in-progress: false
@@ -15,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      HAVE_SECRETS: ${{ secrets.DEPLOYED_DECISION_DB_URL != '' && secrets.KAFKA_BOOTSTRAP_SERVERS != '' && secrets.KAFKA_SASL_USERNAME != '' && secrets.KAFKA_SASL_PASSWORD != '' && secrets.VM_HOST != '' && secrets.VM_SSH_PRIVATE_KEY != '' }}
+      HAVE_SECRETS: ${{ secrets.DEPLOYED_DECISION_DB_URL != '' && secrets.KAFKA_BOOTSTRAP_SERVERS != '' && secrets.KAFKA_CA_CERT != '' && secrets.KAFKA_SERVICE_CERT != '' && secrets.KAFKA_SERVICE_KEY != '' }}
       MLFLOW_TRACKING_URI: ./deploy/model_store
       MLFLOW_RUN_ID: 17d00e31654c4b9e8a9aa389f797d650
       THRESHOLDS_PATH: ./decision/thresholds.json
@@ -23,7 +24,7 @@ jobs:
     steps:
       - name: Note skipped run when secrets are missing
         if: env.HAVE_SECRETS != 'true'
-        run: echo "Streaming secrets not configured yet -- skipping until infra/kafka-vm-setup.md is complete."
+        run: echo "Streaming secrets not configured yet -- skipping until infra/kafka-aiven-setup.md is complete."
 
       - uses: actions/checkout@v4
         if: env.HAVE_SECRETS == 'true'
@@ -52,43 +53,33 @@ jobs:
         env:
           DECISION_DB_URL: ${{ secrets.DEPLOYED_DECISION_DB_URL }}
           KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
-          KAFKA_SASL_USERNAME: ${{ secrets.KAFKA_SASL_USERNAME }}
-          KAFKA_SASL_PASSWORD: ${{ secrets.KAFKA_SASL_PASSWORD }}
+          KAFKA_CA_CERT: ${{ secrets.KAFKA_CA_CERT }}
+          KAFKA_SERVICE_CERT: ${{ secrets.KAFKA_SERVICE_CERT }}
+          KAFKA_SERVICE_KEY: ${{ secrets.KAFKA_SERVICE_KEY }}
         run: python -m streaming.producer
 
-      - name: Fetch Spark checkpoint from the VM
-        id: fetch_checkpoint
+      # The Spark checkpoint (consumed offsets) lives in the Actions cache.
+      # A unique key per run means each successful run saves a fresh copy,
+      # and restore-keys picks up the newest one next time. The save step is
+      # skipped when the job fails, so a failed run never overwrites good
+      # offsets. If the cache is ever evicted, the consumer restarts from
+      # the topic's earliest retained offset: some recent demo rows are
+      # scored twice, which is harmless for this dataset.
+      - name: Restore Spark checkpoint
         if: env.HAVE_SECRETS == 'true'
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
-          mkdir -p ./spark-checkpoint
-          rsync -avz -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
-            "deploy@$VM_HOST:/opt/fraudguard/spark-checkpoint/" \
-            ./spark-checkpoint/
+        uses: actions/cache@v4
+        with:
+          path: ./spark-checkpoint
+          key: spark-checkpoint-${{ github.run_id }}
+          restore-keys: spark-checkpoint-
 
       - name: Run Spark consumer
         if: env.HAVE_SECRETS == 'true'
         env:
           DECISION_DB_URL: ${{ secrets.DEPLOYED_DECISION_DB_URL }}
           KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
-          KAFKA_SASL_USERNAME: ${{ secrets.KAFKA_SASL_USERNAME }}
-          KAFKA_SASL_PASSWORD: ${{ secrets.KAFKA_SASL_PASSWORD }}
+          KAFKA_CA_CERT: ${{ secrets.KAFKA_CA_CERT }}
+          KAFKA_SERVICE_CERT: ${{ secrets.KAFKA_SERVICE_CERT }}
+          KAFKA_SERVICE_KEY: ${{ secrets.KAFKA_SERVICE_KEY }}
           SPARK_CHECKPOINT_DIR: ./spark-checkpoint
         run: python -m streaming.spark_consumer
-
-      # Only push if the fetch succeeded: pushing a fresh/partial local
-      # checkpoint over the VM's real one would lose the stored offsets.
-      - name: Push updated Spark checkpoint back to the VM
-        if: ${{ always() && env.HAVE_SECRETS == 'true' && steps.fetch_checkpoint.outcome == 'success' }}
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-        run: |
-          rsync -avz -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
-            ./spark-checkpoint/ \
-            "deploy@$VM_HOST:/opt/fraudguard/spark-checkpoint/"

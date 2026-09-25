@@ -21,7 +21,10 @@ node_modules/
 frontend/next-env.d.ts
 frontend/.env.local
 
-# live streaming pipeline: broker SASL credentials (generated on the VM, never committed)
-streaming/kafka_server_jaas.conf
-# local Spark Structured Streaming checkpoint (the real one lives on the VM)
+# Aiven Kafka client credentials (private key + certs) -- never commit; stored as GitHub secrets
+service.key
+service.cert
+ca.pem
+*.pem
+# local Spark Structured Streaming checkpoint (the real one lives in the Actions cache)
 spark-checkpoint/
