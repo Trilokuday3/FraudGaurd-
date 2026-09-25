@@ -54,14 +54,13 @@ def test_main_does_not_advance_cursor_and_closes_producer_when_publish_fails(mon
     futures[0].get.side_effect = RuntimeError("delivery timed out")
     advance = MagicMock()
     monkeypatch.setattr(producer_module, "build_kafka_producer", lambda *a: producer)
+    monkeypatch.setattr(producer_module, "load_tls_material", lambda: None)
     monkeypatch.setattr(producer_module, "advance_cursor", advance)
     monkeypatch.setattr(producer_module, "get_cursor", lambda session: 0)
     monkeypatch.setattr(producer_module, "load_sample_pool", lambda path: [{"id": 0}, {"id": 1}])
     monkeypatch.setenv("DECISION_DB_URL", "sqlite:///:memory:")
     monkeypatch.setenv("PRODUCER_BATCH_SIZE", "2")
     monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    monkeypatch.setenv("KAFKA_SASL_USERNAME", "u")
-    monkeypatch.setenv("KAFKA_SASL_PASSWORD", "p")
 
     with pytest.raises(RuntimeError, match="delivery timed out"):
         producer_module.main()

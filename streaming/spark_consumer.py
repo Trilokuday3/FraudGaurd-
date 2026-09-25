@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterable
 from pydantic import ValidationError
 
 from serving.schemas import FeatureRow
+from streaming.kafka_config import KafkaTlsMaterial, load_tls_material, spark_ssl_options
 
 logger = logging.getLogger(__name__)
 
@@ -156,26 +157,18 @@ def build_spark_session():
 def run(
     bootstrap_servers: str,
     topic: str,
-    username: str,
-    password: str,
+    tls: KafkaTlsMaterial,
     checkpoint_location: str,
 ) -> None:
     # Lazy import so the module imports without pyspark installed (CI).
     from pyspark.sql.functions import col, from_json
 
     spark = build_spark_session()
-    jaas_config = (
-        "org.apache.kafka.common.security.plain.PlainLoginModule required "
-        f'username="{username}" password="{password}";'
-    )
+    # mTLS to Aiven, same certificates as streaming/producer.py.
     raw_stream = (
-        # SASL_PLAINTEXT, matching Task 6's broker (no TLS termination
-        # configured there) and streaming/producer.py's build_kafka_producer.
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", bootstrap_servers)
-        .option("kafka.security.protocol", "SASL_PLAINTEXT")
-        .option("kafka.sasl.mechanism", "PLAIN")
-        .option("kafka.sasl.jaas.config", jaas_config)
+        .options(**spark_ssl_options(tls))
         .option("subscribe", topic)
         .option("startingOffsets", "earliest")
         .load()
@@ -198,8 +191,7 @@ def main() -> None:
     run(
         bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"],
         topic=os.environ.get("KAFKA_TOPIC", "fraudguard.transactions"),
-        username=os.environ["KAFKA_SASL_USERNAME"],
-        password=os.environ["KAFKA_SASL_PASSWORD"],
+        tls=load_tls_material(),
         checkpoint_location=os.environ.get("SPARK_CHECKPOINT_DIR", "./spark-checkpoint"),
     )
 
