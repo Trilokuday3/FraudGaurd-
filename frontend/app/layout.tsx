@@ -49,7 +49,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             approve: counts?.approve_count ?? 0,
           }}
         />
-        <MobileNav />
+        <MobileNav
+          counts={{
+            block: counts?.block_count ?? 0,
+            review: counts?.review_count ?? 0,
+            approve: counts?.approve_count ?? 0,
+          }}
+        />
         <div className="md:pl-60">{children}</div>
       </body>
     </html>

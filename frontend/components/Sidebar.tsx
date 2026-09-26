@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./ThemeToggle";
@@ -13,15 +14,27 @@ export const NAV = [
   { href: "/monitoring", label: "Monitoring" },
 ];
 
-interface SidebarProps {
-  counts: { block: number; review: number; approve: number };
+export interface SidebarCounts {
+  block: number;
+  review: number;
+  approve: number;
 }
 
-export function Sidebar({ counts }: SidebarProps) {
+interface SidebarContentProps {
+  counts: SidebarCounts;
+  // Runs when a nav link is followed -- the mobile drawer uses it to close.
+  onNavigate?: () => void;
+  // Rendered at the end of the brand row (the drawer's close button).
+  headerAction?: React.ReactNode;
+}
+
+// The sidebar's contents, shared by the fixed desktop sidebar and the
+// mobile drawer (MobileNav) so the two can't drift apart.
+export function SidebarContent({ counts, onNavigate, headerAction }: SidebarContentProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden md:flex md:w-60 md:flex-col md:fixed md:inset-y-0 border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-4 py-5">
+    <>
       <div className="flex items-center gap-2 px-1 mb-8">
         <span className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center text-white text-sm font-semibold">
           F
@@ -34,6 +47,7 @@ export function Sidebar({ counts }: SidebarProps) {
             Risk management platform
           </div>
         </div>
+        {headerAction && <div className="ml-auto">{headerAction}</div>}
       </div>
 
       <div className="mb-6">
@@ -47,7 +61,9 @@ export function Sidebar({ counts }: SidebarProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`block rounded-md px-2 py-1.5 text-sm transition-colors ${
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
+                className={`block rounded-md px-2 py-2 md:py-1.5 text-sm transition-colors ${
                   active
                     ? "bg-brand/10 text-brand font-medium"
                     : "text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800"
@@ -108,6 +124,14 @@ export function Sidebar({ counts }: SidebarProps) {
           </div>
         </div>
       </div>
+    </>
+  );
+}
+
+export function Sidebar({ counts }: { counts: SidebarCounts }) {
+  return (
+    <aside className="hidden md:flex md:w-60 md:flex-col md:fixed md:inset-y-0 border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-4 py-5">
+      <SidebarContent counts={counts} />
     </aside>
   );
 }
