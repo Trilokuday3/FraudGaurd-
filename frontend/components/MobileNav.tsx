@@ -10,7 +10,7 @@ export function MobileNav() {
 
   return (
     <div className="md:hidden border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950">
-      <nav className="flex gap-1 px-3 py-2 overflow-x-auto">
+      <nav className="flex flex-wrap gap-1 px-3 py-2">
         {NAV.map((item) => {
           const active = pathname === item.href;
           return (

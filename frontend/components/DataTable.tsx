@@ -24,15 +24,15 @@ export function DataTable({ rows, onRowClick, selectedId, pageSize = 10 }: DataT
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-xs sm:text-sm">
         <thead>
           <tr className="text-left border-b border-neutral-200 dark:border-neutral-800 text-neutral-500 dark:text-neutral-400">
-            <th className="py-2 pr-4 font-medium">Transaction</th>
-            <th className="py-2 pr-4 font-medium">Amount</th>
-            <th className="py-2 pr-4 font-medium">Score</th>
-            <th className="py-2 pr-4 font-medium">Decision</th>
-            <th className="py-2 pr-4 font-medium">Source</th>
-            <th className="py-2 pr-4 font-medium">Time</th>
+            <th className="py-2 pr-2 sm:pr-4 font-medium">Transaction</th>
+            <th className="py-2 pr-2 sm:pr-4 font-medium">Amount</th>
+            <th className="py-2 pr-2 sm:pr-4 font-medium">Score</th>
+            <th className="py-2 pr-2 sm:pr-4 font-medium">Decision</th>
+            <th className="py-2 pr-2 sm:pr-4 font-medium hidden sm:table-cell">Source</th>
+            <th className="py-2 pr-2 sm:pr-4 font-medium hidden sm:table-cell">Time</th>
           </tr>
         </thead>
         <tbody>
@@ -44,22 +44,22 @@ export function DataTable({ rows, onRowClick, selectedId, pageSize = 10 }: DataT
               }`}
               onClick={() => onRowClick?.(row)}
             >
-              <td className="py-2 pr-4 font-mono text-neutral-900 dark:text-neutral-100">
+              <td className="py-2 pr-2 sm:pr-4 font-mono text-neutral-900 dark:text-neutral-100">
                 {row.transaction_id}
               </td>
-              <td className="py-2 pr-4 font-mono text-neutral-600 dark:text-neutral-300">
+              <td className="py-2 pr-2 sm:pr-4 font-mono text-neutral-600 dark:text-neutral-300">
                 {formatAmount(row)}
               </td>
-              <td className="py-2 pr-4 font-mono text-neutral-600 dark:text-neutral-300">
+              <td className="py-2 pr-2 sm:pr-4 font-mono text-neutral-600 dark:text-neutral-300">
                 {row.model_score.toFixed(3)}
               </td>
-              <td className="py-2 pr-4">
+              <td className="py-2 pr-2 sm:pr-4">
                 <DecisionBadge decision={row.decision} />
               </td>
-              <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">
+              <td className="py-2 pr-2 sm:pr-4 text-neutral-500 dark:text-neutral-400 hidden sm:table-cell">
                 {row.decision_source}
               </td>
-              <td className="py-2 pr-4 text-neutral-500 dark:text-neutral-400">
+              <td className="py-2 pr-2 sm:pr-4 text-neutral-500 dark:text-neutral-400 hidden sm:table-cell">
                 {new Date(row.created_at).toLocaleTimeString()}
               </td>
             </tr>
