@@ -3,13 +3,20 @@ pandera schema (fraudguard_core.schemas.features_schema) sub-project 1's
 generator DQ suite (tests/dq/) validates training data with -- extends
 automated data-quality checks to live/replayed traffic, not just the
 offline dataset. Reuses the schema rather than duplicating it: FeatureRow
-(serving/schemas.py) and features_schema describe the same 17 columns."""
+(serving/schemas.py) and features_schema describe the same 17 columns.
+
+One check is relaxed for this context: features_schema requires a unique
+transaction_id per row, which holds for offline generator output but not
+for scored traffic -- the replay worker (serving/replay_worker.py) cycles
+forever through a fixed sample file, so the same transaction is legitimately
+re-scored many times over."""
 
 import argparse
 
 import pandas as pd
 import pandera.errors as pa_errors
 from fraudguard_core.schemas import features_schema
+from pandera.pandas import Check
 
 from serving.config import settings
 from serving.models import Decision, make_session_factory
@@ -23,6 +30,17 @@ _BOOL_COLUMNS = [
     "is_new_country_for_customer",
     "ip_country_mismatch",
 ]
+
+# features_schema enforces transaction_id uniqueness for offline generator
+# output, where one row == one transaction. Scored/live traffic doesn't hold
+# that invariant: the replay worker (serving/replay_worker.py) cycles
+# forever through a fixed sample file, so the same transaction_id is
+# legitimately re-scored -- and re-inserted as a new Decision row -- many
+# times over. Drop just the uniqueness check for this context; keep every
+# other column check as-is.
+_SCORED_FEATURES_SCHEMA = features_schema.update_column(
+    "transaction_id", unique=False, checks=Check.str_startswith("TXN")
+)
 
 
 def _load_recent_feature_rows(db_url: str, limit: int) -> pd.DataFrame:
@@ -52,7 +70,7 @@ def check_scored_dq(db_url: str | None = None, limit: int = 500) -> dict:
         df[col] = df[col].astype(int)
 
     try:
-        features_schema.validate(df, lazy=True)
+        _SCORED_FEATURES_SCHEMA.validate(df, lazy=True)
         return {"checked_rows": len(df), "passed": True, "failures": []}
     except pa_errors.SchemaErrors as exc:
         failures = exc.failure_cases[["column", "check", "failure_case"]].to_dict(orient="records")

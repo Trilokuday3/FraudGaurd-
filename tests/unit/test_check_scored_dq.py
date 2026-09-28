@@ -86,6 +86,28 @@ def test_check_scored_dq_reports_failures_on_invalid_rows(tmp_path):
     assert "payment_method" in failed_columns
 
 
+def test_check_scored_dq_allows_repeated_transaction_id(tmp_path):
+    # The replay worker (serving/replay_worker.py) cycles forever through a
+    # fixed sample file, so the same transaction_id is legitimately scored
+    # -- and inserted as a new Decision row -- more than once. That's not a
+    # data-quality defect, unlike the offline generator output where
+    # transaction_id must be unique per row.
+    db_url = f"sqlite:///{tmp_path}/test.db"
+    _seed_decisions(
+        db_url,
+        [
+            _valid_feature_row(transaction_id="TXN0001"),
+            _valid_feature_row(transaction_id="TXN0001"),
+        ],
+    )
+
+    result = check_scored_dq(db_url=db_url)
+
+    assert result["checked_rows"] == 2
+    assert result["passed"] is True
+    assert result["failures"] == []
+
+
 def test_check_scored_dq_handles_no_scored_rows(tmp_path):
     db_url = f"sqlite:///{tmp_path}/empty.db"
 
