@@ -121,28 +121,3 @@ loop, off by default so local dev doesn't get spammed with fake decisions
 unless you opt in), `REPLAY_INTERVAL_SECONDS` (seconds between replayed
 transactions when the worker is on, default `7.0`).
 
-## Layout
-
-```
-libs/fraudguard_core/   shared schemas, config, value sets
-generator/               synthetic data generator (customers, merchants, devices, transactions)
-features/                leakage-safe feature engineering -> data/features.parquet
-ml/                      modeling: data prep, training, calibration, SHAP, Isolation Forest, CLI
-decision/                cost-sensitive threshold selection + rules engine -> decision/thresholds.json
-serving/                 FastAPI decision engine service (score/explain/investigate)
-mlops/                   MLflow registry promotion/rollback, scored-traffic DQ checks, Evidently drift reports (sub-project 7)
-frontend/                Next.js web app: Dashboard, Live Transactions, Investigations, Model Center, Threshold Simulator, Monitoring -> consumes the serving/ API
-scripts/                 local-dev + deploy helpers: replay_transactions.py (sub-project 5 streaming stand-in), vendor_model_store.py and generate_sample_transactions.py (deployment prep, sub-project 8)
-deploy/                  committed deployment artifacts: model_store/ (vendored MLflow snapshot), requirements.txt (lean prod deps), sample_transactions.json (bundled replay data)
-streaming/               live Kafka + Spark pipeline: producer, Spark consumer, cursor store, mTLS config for Aiven Kafka (built, pending first run; see docs/superpowers/specs/2026-09-23-live-kafka-spark-streaming-design.md)
-infra/                   deploy.md: the real step-by-step deployment runbook; kafka-aiven-setup.md: one-time Aiven Kafka setup
-tests/unit/              generator + feature + modeling unit tests
-tests/features/          leakage + schema gate on the feature table
-tests/dq/                pandera data-quality gate against ./data
-tests/integration/       end-to-end tests against the FastAPI serving app
-docs/                    specs, data dictionary, generation-model writeup
-```
-
-See the roadmap doc for what's next: sub-project 7's spec/plan docs and
-rollback runbook (code is done, see Status above), and going fully live
-per `infra/deploy.md`.
