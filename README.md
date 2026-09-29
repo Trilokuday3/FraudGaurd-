@@ -1,9 +1,12 @@
 # FraudGuard — Fraud Intelligence & Real-Time Risk Management Platform
 
-A portfolio-grade fraud detection product: synthetic transaction data →
-leakage-safe features → calibrated, explainable ML → a decision engine → a
-FastAPI service → a Next.js web app → deployed, with a link on
-[Trilokeshvenkatauday.github.io](https://trilokeshvenkatauday.github.io).
+A modern, portfolio-grade fraud detection platform built for scale. Key capabilities include:
+- 🚀 **Data Foundation:** Robust synthetic transaction data generation.
+- 🛡️ **Feature Engineering:** Leakage-safe pipelines for reliable model inputs.
+- 🧠 **Machine Learning:** Calibrated, explainable ML models optimized for fraud detection.
+- ⚡ **Real-Time Decisions:** A high-performance decision engine exposed via a FastAPI service.
+- 📊 **Modern Web App:** A sleek Next.js dashboard for monitoring and investigations.
+- ☁️ **Cloud Native:** Fully deployable, with a live link on [Trilokeshvenkatauday.github.io](https://trilokeshvenkatauday.github.io).
 
 **Live demo:** [https://fraudgaurd.trilokeshvenkatauday.me/](https://fraudgaurd.trilokeshvenkatauday.me/)
 
