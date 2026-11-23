@@ -3,6 +3,7 @@ import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { Sidebar } from "@/components/Sidebar";
 import { MobileNav } from "@/components/MobileNav";
 import { fetchDecisionsStats } from "@/lib/api";
+import { Analytics } from "@vercel/analytics/next";
 
 const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -57,6 +58,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           }}
         />
         <div className="md:pl-60">{children}</div>
+        <Analytics />
       </body>
     </html>
   );
